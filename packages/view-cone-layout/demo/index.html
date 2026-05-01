@@ -674,6 +674,15 @@ textFolder.add({
   },
 }, 'fit').name(`Auto-fit to ${READABILITY_TARGET_PX} px`);
 
+function resetAllTextScales() {
+  for (const { panel, ctl, proxy } of textControllers) {
+    panel.setTextScale(1.0);
+    proxy.scale = 1.0;
+    ctl.updateDisplay();
+  }
+}
+textFolder.add({ reset: resetAllTextScales }, 'reset').name('Reset Text Sizes');
+
 // Orbit camera controls
 const viewFolder = gui.addFolder('View Camera');
 const viewParams = {
