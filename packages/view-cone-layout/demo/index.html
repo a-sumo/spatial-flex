@@ -391,48 +391,51 @@ function createPanel({
     hovered: false, sector: '', conflicts: [],
     get worldPos() { return group.position; },
 
-    /** Re-measure the text at current fontPx*scale, resize face/border/label to fit. */
-    shrinkwrap() {
+    /** Re-render label canvas + label plane at current text/scale.
+     *  Updates labelW, labelH, baselineCapHWorld. Frame UNTOUCHED. */
+    renderLabel() {
       const effFontPx = this.fontPx * this.textScale;
       const maxW = this.maxWidthCm * 0.01 * LABEL_PPM;
       const measure = measureTextLines(this.text, effFontPx, maxW);
 
-      // Render to a fresh canvas
       const rendered = renderTextCanvas(measure, effFontPx);
       if (this.labelMat.map) this.labelMat.map.dispose();
       this.labelMat.map = new THREE.CanvasTexture(rendered.canvas);
       this.labelMat.map.colorSpace = THREE.SRGBColorSpace;
       this.labelMat.needsUpdate = true;
 
-      // World dims
       const labelW = rendered.widthPx / LABEL_PPM;
       const labelH = rendered.heightPx / LABEL_PPM;
-      const padW = this.paddingCm * 0.01 * 2;
-      const frameW = labelW + padW;
-      const frameH = labelH + padW;
-
-      // Update geometries
       this.label.geometry.dispose();
       this.label.geometry = new THREE.PlaneGeometry(labelW, labelH);
+
+      this.labelW = labelW;
+      this.labelH = labelH;
+      this.baselineCapHWorld = effFontPx / LABEL_PPM;
+    },
+
+    /** Resize the frame to fit the current label + padding. Text UNTOUCHED. */
+    shrinkwrap() {
+      const padW = this.paddingCm * 0.01 * 2;
+      const frameW = this.labelW + padW;
+      const frameH = this.labelH + padW;
       this.face.geometry.dispose();
       this.face.geometry = new THREE.PlaneGeometry(frameW, frameH);
       this.border.geometry.dispose();
       this.border.geometry = new THREE.EdgesGeometry(new THREE.BoxGeometry(frameW, frameH, 0.002));
-
       this.w = frameW;
       this.h = frameH;
-      // Cap height in world = font px / PPM (one glyph row)
-      this.baselineCapHWorld = effFontPx / LABEL_PPM;
     },
 
     setTextScale(s) {
       this.textScale = s;
-      this.shrinkwrap();
+      this.renderLabel();
+      // Frame UNTOUCHED — call shrinkwrap() separately if you want it to refit.
     },
 
     setText(newText) {
       this.text = newText;
-      this.shrinkwrap();
+      this.renderLabel();
     },
 
     /** Force the frame to an explicit world size (cm). Doesn't touch the label;
@@ -449,6 +452,8 @@ function createPanel({
     },
   };
 
+  // Initial state: render label, then shrinkwrap frame around it.
+  panel.renderLabel();
   panel.shrinkwrap();
   return panel;
 }
