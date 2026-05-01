@@ -1078,11 +1078,41 @@ const params = {
 };
 const gui = new GUI({ title: 'View Cone' });
 
-const camFolder = gui.addFolder('Scene Camera (Spectacles)');
+// textControllers populated when we build the per-panel folder below.
+// Defined here so guiOp's closure can reference it before that point.
+const textControllers = [];
+const refreshTextSliders = () => {
+  for (const { panel, ctl, proxy } of textControllers) {
+    proxy.scale = panel.textScale;
+    ctl.updateDisplay();
+  }
+};
+const guiOp = (name, args) => async () => {
+  const { done } = ops[name].apply(ctx, args);
+  await done;
+  refreshTextSliders();
+};
+
+// 1. Marquee — the canonical view-aware layout pass.
+gui.add({ pass: async () => {
+  await runSequence(ctx, [
+    { op: 'fitReadability', args: { targetPx: READABILITY_TARGET_PX } },
+    { op: 'shrinkwrapAll' },
+    { op: 'resolveOverlaps' },
+  ]);
+  refreshTextSliders();
+} }, 'pass').name('▶ Run Layout Pass');
+
+// 2. Camera (Spectacles) — every intrinsic of the simulated wearer's eye.
+const camFolder = gui.addFolder('Camera (Spectacles)');
 camFolder.add(cam, 'near', 0.01, 0.3, 0.01).name('Near Plane').onChange(v => {
   NEAR_PLANE = v;
   buildConeOutlines(params.coneDepth);
   updateSceneCamera();
+});
+camFolder.add(params, 'coneDepth', 0.3, 1.5, 0.05).name('Far Plane').onChange(v => {
+  buildConeOutlines(v);
+  buildDepthRuler(v);
 });
 camFolder.add(cam, 'hFov', 20, 120, 1).name('H-FOV°').onChange(v => {
   H_FOV = v;
@@ -1095,70 +1125,31 @@ camFolder.add(cam, 'vFov', 15, 90, 1).name('V-FOV°').onChange(v => {
   updateSceneCamera();
 });
 camFolder.add(cam, 'ppd', 10, 80, 1).name('Display PPD');
-gui.add(params, 'coneDepth', 0.3, 1.5, 0.05).name('Far Plane').onChange(v => {
-  buildConeOutlines(v);
-  buildDepthRuler(v);
-});
-// All buttons delegate to ops. Per-panel text-scale sliders bypass the
-// registry (they're a continuous controller, not a discrete action), but
-// the slider proxies refresh after any op that touches textScale so the
-// GUI stays in sync.
-const refreshTextSliders = () => {
-  for (const { panel, ctl, proxy } of textControllers) {
-    proxy.scale = panel.textScale;
-    ctl.updateDisplay();
-  }
-};
 
-const guiOp = (name, args) => async () => {
-  const { done } = ops[name].apply(ctx, args);
-  await done;
-  refreshTextSliders();
-};
+// 3. Layout Actions — every named op that operates on all panels, paired with
+//    its inverse so do/undo are always adjacent.
+const actionsFolder = gui.addFolder('Layout Actions');
+actionsFolder.add({ a: guiOp('resolveOverlaps') }, 'a').name('Resolve Overlaps');
+actionsFolder.add({ a: guiOp('resetPositions') }, 'a').name('↺ Reset Positions');
+actionsFolder.add({ a: guiOp('shrinkwrapAll') }, 'a').name('Shrinkwrap to Text');
+actionsFolder.add({ a: guiOp('setUniformFrames', { wCm: DEFAULT_FRAME_SIZE_CM.w, hCm: DEFAULT_FRAME_SIZE_CM.h }) },
+  'a').name('↺ Reset Frame Sizes');
+actionsFolder.add({ a: guiOp('fitReadability', { targetPx: READABILITY_TARGET_PX }) },
+  'a').name(`Auto-fit Text to ${READABILITY_TARGET_PX} px`);
+actionsFolder.add({ a: guiOp('resetTextScale') }, 'a').name('↺ Reset Text Sizes');
 
-gui.add({ pass: async () => {
-  await runSequence(ctx, [
-    { op: 'fitReadability', args: { targetPx: READABILITY_TARGET_PX } },
-    { op: 'shrinkwrapAll' },
-    { op: 'resolveOverlaps' },
-  ]);
-  refreshTextSliders();
-} }, 'pass').name('▶ Run Layout Pass');
-
-const inspectFolder = gui.addFolder('Inspector');
-inspectFolder.add(inspect, 'verbose').name('Verbose / Slow Motion');
-inspectFolder.add(inspect, 'stepDelayMs', 0, 2000, 50).name('Step Delay (ms)');
-inspectFolder.add(inspect, 'animDurationMs', 0, 2000, 50).name('Anim Duration (ms)');
-inspectFolder.add({ clear: () => {
-  const el = document.getElementById('ops-log');
-  if (el) el.innerHTML = '';
-} }, 'clear').name('Clear Log');
-
-gui.add({ resolve: guiOp('resolveOverlaps') }, 'resolve').name('Resolve Overlaps');
-gui.add({ reset: guiOp('resetPositions') }, 'reset').name('Reset Positions');
-gui.add({ shrinkwrap: guiOp('shrinkwrapAll') }, 'shrinkwrap').name('Shrinkwrap to Text');
-gui.add({ resetFrames: guiOp('setUniformFrames', { wCm: DEFAULT_FRAME_SIZE_CM.w, hCm: DEFAULT_FRAME_SIZE_CM.h }) },
-  'resetFrames').name('Reset Frame Sizes');
-
-// ─── Per-panel text size sliders + readability ops ───────────────────
+// 4. Panel Text Size — fine-grained per-panel scale sliders.
 const textFolder = gui.addFolder('Panel Text Size');
-const textControllers = [];
 for (const p of panels) {
   const proxy = { scale: 1.0 };
   const ctl = textFolder.add(proxy, 'scale', 0.3, 3.0, 0.05).name(p.name);
   ctl.onChange(v => p.setTextScale(v));
   textControllers.push({ panel: p, ctl, proxy });
 }
-textFolder.add({ fit: guiOp('fitReadability', { targetPx: READABILITY_TARGET_PX }) },
-  'fit').name(`Auto-fit to ${READABILITY_TARGET_PX} px`);
-textFolder.add({ reset: guiOp('resetTextScale') }, 'reset').name('Reset Text Sizes');
 
-// Orbit camera controls
-const viewFolder = gui.addFolder('View Camera');
-const viewParams = {
-  ortho: false,
-  fov: camera.fov,
-};
+// 5. View Camera — the orbit camera you inspect the scene with (NOT the wearer's eye).
+const viewFolder = gui.addFolder('View Camera (orbit)');
+const viewParams = { ortho: false, fov: camera.fov };
 viewFolder.add(viewParams, 'ortho').name('Orthographic').onChange(v => {
   if (v) {
     const d = camera.position.length();
@@ -1178,6 +1169,17 @@ viewFolder.add(viewParams, 'fov', 20, 120, 1).name('View FOV').onChange(v => {
   camera.fov = v;
   camera.updateProjectionMatrix();
 });
+
+// 6. Inspector — verbose mode + slow-motion pacing for debugging ops.
+const inspectFolder = gui.addFolder('Inspector');
+inspectFolder.add(inspect, 'verbose').name('Verbose / Slow Motion');
+inspectFolder.add(inspect, 'stepDelayMs', 0, 2000, 50).name('Step Delay (ms)');
+inspectFolder.add(inspect, 'animDurationMs', 0, 2000, 50).name('Anim Duration (ms)');
+inspectFolder.add({ clear: () => {
+  const el = document.getElementById('ops-log');
+  if (el) el.innerHTML = '';
+} }, 'clear').name('Clear Log');
+inspectFolder.close();
 
 // Initial build
 buildConeOutlines(params.coneDepth);
