@@ -79,6 +79,66 @@ function updateSceneCamera() {
   sceneCamera.updateProjectionMatrix();
 }
 
+// ─── Depth ruler — labeled cm graduation along -Z axis ───────────────
+const rulerGroup = new THREE.Group();
+scene.add(rulerGroup);
+
+function buildDepthRuler(maxDepth) {
+  while (rulerGroup.children.length) {
+    const c = rulerGroup.children[0];
+    rulerGroup.remove(c);
+    if (c.geometry) c.geometry.dispose();
+    if (c.material) {
+      if (c.material.map) c.material.map.dispose();
+      c.material.dispose();
+    }
+  }
+
+  const baseY = -0.12;
+  const spineColor = 0x5f5980;
+  const tickColor = 0xdfdfdf;
+
+  // Spine
+  const spineGeo = new THREE.BufferGeometry().setFromPoints([
+    new THREE.Vector3(0, baseY, 0),
+    new THREE.Vector3(0, baseY, -maxDepth),
+  ]);
+  rulerGroup.add(new THREE.Line(
+    spineGeo,
+    new THREE.LineBasicMaterial({ color: spineColor, opacity: 0.55, transparent: true })
+  ));
+
+  // Tick segments + labels at every 25 cm
+  const tickPoints = [];
+  const maxCm = Math.floor(maxDepth * 100);
+  for (let cm = 25; cm <= maxCm; cm += 25) {
+    const z = -cm / 100;
+    const isMajor = cm % 100 === 0;
+    const tickH = isMajor ? 0.030 : 0.014;
+    tickPoints.push(new THREE.Vector3(0, baseY, z), new THREE.Vector3(0, baseY - tickH, z));
+
+    const canvas = document.createElement('canvas');
+    canvas.width = 128; canvas.height = 32;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = isMajor ? '#dfdfdf' : '#9994a8';
+    ctx.font = `${isMajor ? 'bold ' : ''}20px Inter, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.fillText(`${cm} cm`, 64, 22);
+    const tex = new THREE.CanvasTexture(canvas);
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: tex, transparent: true, depthWrite: false, opacity: isMajor ? 1.0 : 0.7,
+    }));
+    sprite.position.set(0, baseY - tickH - 0.022, z);
+    sprite.scale.set(0.085, 0.022, 1);
+    rulerGroup.add(sprite);
+  }
+  const tickGeo = new THREE.BufferGeometry().setFromPoints(tickPoints);
+  rulerGroup.add(new THREE.LineSegments(
+    tickGeo,
+    new THREE.LineBasicMaterial({ color: tickColor, opacity: 0.7, transparent: true })
+  ));
+}
+
 // ─── Cone border outline — projected quad edges from camera ──────────
 const coneMat = new THREE.LineBasicMaterial({ color: 0x0e34a0, transparent: true, opacity: 0.25 });
 const coneGroup = new THREE.Group();
@@ -270,10 +330,16 @@ function createPanel(name, x, y, z, color, w = 0.2, h = 0.08) {
 
 // Initial positions — clustered in angular space, spread in Z so the
 // view-dependent nature of the overlap is obvious from orbit view.
-panels.push(createPanel(panelNames[0], -0.025,  0.020, -0.40, panelColors[0]));  // near
-panels.push(createPanel(panelNames[1],  0.040,  0.000, -0.70, panelColors[1]));
-panels.push(createPanel(panelNames[2], -0.040, -0.025, -1.05, panelColors[2]));
-panels.push(createPanel(panelNames[3],  0.025,  0.060, -1.40, panelColors[3]));  // far
+const INITIAL_POSITIONS = [
+  [-0.025,  0.020, -0.40],   // near
+  [ 0.040,  0.000, -0.70],
+  [-0.040, -0.025, -1.05],
+  [ 0.025,  0.060, -1.40],   // far
+];
+for (let i = 0; i < panelNames.length; i++) {
+  const [x, y, z] = INITIAL_POSITIONS[i];
+  panels.push(createPanel(panelNames[i], x, y, z, panelColors[i]));
+}
 
 // ─── Cone projection + overlap detection ─────────────────────────────
 function projectToAngular(pos) {
@@ -514,10 +580,10 @@ const params = {
   resolve: () => { resolveActive = true; resolveConflicts(); },
   reset: () => {
     resolveActive = false;
-    panels[0].group.position.set(-0.05, 0.06, -0.65);
-    panels[1].group.position.set(0.05, 0.02, -0.65);
-    panels[2].group.position.set(0.0, -0.02, -0.65);
-    panels[3].group.position.set(-0.02, -0.06, -0.70);
+    for (let i = 0; i < panels.length; i++) {
+      const [x, y, z] = INITIAL_POSITIONS[i];
+      panels[i].group.position.set(x, y, z);
+    }
     for (const k in resolvedTargets) resolvedTargets[k] = null;
   },
 };
@@ -541,6 +607,7 @@ camFolder.add(cam, 'vFov', 15, 90, 1).name('V-FOV°').onChange(v => {
 });
 gui.add(params, 'coneDepth', 0.3, 1.5, 0.05).name('Far Plane').onChange(v => {
   buildConeOutlines(v);
+  buildDepthRuler(v);
 });
 gui.add(params, 'resolve').name('Resolve Overlaps');
 gui.add(params, 'reset').name('Reset Positions');
@@ -574,6 +641,7 @@ viewFolder.add(viewParams, 'fov', 20, 120, 1).name('View FOV').onChange(v => {
 // Initial build
 buildConeOutlines(params.coneDepth);
 buildAllSectors(params.coneDepth);
+buildDepthRuler(params.coneDepth);
 
 // ─── Draw connection lines from camera to panels ─────────────────────
 const connectionLines = [];
@@ -692,8 +760,9 @@ function animate() {
   renderer.render(scene, activeCam);
 
   // Inset preview: what the scene camera actually sees
-  // Hide debug visuals (cone outlines, overlap volumes, connection lines)
+  // Hide debug visuals (cone outlines, overlap volumes, connection lines, ruler)
   coneGroup.visible = false;
+  rulerGroup.visible = false;
   if (panelConeMesh) panelConeMesh.visible = false;
   for (const m of overlapMeshes) m.visible = false;
   for (const l of connectionLines) l.visible = false;
@@ -702,6 +771,7 @@ function animate() {
 
   // Restore
   coneGroup.visible = true;
+  rulerGroup.visible = true;
   for (const l of connectionLines) l.visible = true;
 }
 animate();
