@@ -9,7 +9,7 @@
   #overlap-log { position:fixed;bottom:12px;left:12px;z-index:10;font-size:10px;color:var(--dim);max-height:120px;overflow-y:auto; }
   #scene-cam-preview {
     position:fixed; bottom:12px; right:12px; z-index:10;
-    border: 1px solid rgba(24,120,224,0.4); border-radius: 4px;
+    border: 1px solid rgba(14,52,160,0.5); border-radius: 4px;
     background: #0a0a0c;
   }
   #scene-cam-label {
@@ -80,7 +80,7 @@ function updateSceneCamera() {
 }
 
 // ─── Cone border outline — projected quad edges from camera ──────────
-const coneMat = new THREE.LineBasicMaterial({ color: 0x1878e0, transparent: true, opacity: 0.25 });
+const coneMat = new THREE.LineBasicMaterial({ color: 0x0e34a0, transparent: true, opacity: 0.25 });
 const coneGroup = new THREE.Group();
 scene.add(coneGroup);
 
@@ -114,11 +114,11 @@ function buildConeOutlines(depth) {
     new THREE.Vector3(-nw, -nh, -NEAR_PLANE),
   ];
   const nearGeo = new THREE.BufferGeometry().setFromPoints([...nearCorners, nearCorners[0]]);
-  coneGroup.add(new THREE.Line(nearGeo, new THREE.LineBasicMaterial({ color: 0x1878e0, opacity: 0.5, transparent: true })));
+  coneGroup.add(new THREE.Line(nearGeo, new THREE.LineBasicMaterial({ color: 0x0e34a0, opacity: 0.5, transparent: true })));
   // Near plane filled
   const nearFillGeo = new THREE.PlaneGeometry(nw * 2, nh * 2);
   const nearFill = new THREE.Mesh(nearFillGeo, new THREE.MeshBasicMaterial({
-    color: 0x1878e0, transparent: true, opacity: 0.04, side: THREE.DoubleSide, depthWrite: false,
+    color: 0x0e34a0, transparent: true, opacity: 0.04, side: THREE.DoubleSide, depthWrite: false,
   }));
   nearFill.position.set(0, 0, -NEAR_PLANE);
   coneGroup.add(nearFill);
@@ -126,11 +126,11 @@ function buildConeOutlines(depth) {
   // Rays from near plane corners to far plane corners
   for (let i = 0; i < 4; i++) {
     const rayGeo = new THREE.BufferGeometry().setFromPoints([nearCorners[i], corners[i]]);
-    coneGroup.add(new THREE.Line(rayGeo, new THREE.LineBasicMaterial({ color: 0x1878e0, transparent: true, opacity: 0.1 })));
+    coneGroup.add(new THREE.Line(rayGeo, new THREE.LineBasicMaterial({ color: 0x0e34a0, transparent: true, opacity: 0.1 })));
   }
 
   // 3x3 sector grid lines
-  const gridMat = new THREE.LineBasicMaterial({ color: 0x1878e0, transparent: true, opacity: 0.12 });
+  const gridMat = new THREE.LineBasicMaterial({ color: 0x0e34a0, transparent: true, opacity: 0.12 });
   for (let i = 1; i < 3; i++) {
     const f = -1 + (2 * i / 3);
     // Vertical grid line
@@ -220,8 +220,9 @@ function buildAllSectors(defaultDepth) {
 
 // ─── Panel elements (draggable boxes) ────────────────────────────────
 const panels = [];
-const panelColors = [0x1878e0, 0xe03020, 0xe08818, 0x40b080];
-const panelNames = ["DIGITIZE", "ASSEMBLY", "CONTROL", "PERMANENCE"];
+// Palette: alabaster-grey, twilight-indigo, dusty-grape, egyptian-blue
+const panelColors = [0xdfdfdf, 0x2f3061, 0x5f5980, 0x0e34a0];
+const panelNames = ["PANEL A", "PANEL B", "PANEL C", "PANEL D"];
 
 const DEPTHS = { near: 0.4, mid: 0.65, far: 1.0 };
 
@@ -267,11 +268,12 @@ function createPanel(name, x, y, z, color, w = 0.2, h = 0.08) {
   };
 }
 
-// Initial positions — overlapping on purpose
-panels.push(createPanel("DIGITIZE",   -0.05, 0.06, -0.65, panelColors[0]));
-panels.push(createPanel("ASSEMBLY",    0.05, 0.02, -0.65, panelColors[1]));
-panels.push(createPanel("CONTROL",     0.0, -0.02, -0.65, panelColors[2]));
-panels.push(createPanel("PERMANENCE", -0.02, -0.06, -0.70, panelColors[3]));
+// Initial positions — clustered in angular space, spread in Z so the
+// view-dependent nature of the overlap is obvious from orbit view.
+panels.push(createPanel(panelNames[0], -0.025,  0.020, -0.40, panelColors[0]));  // near
+panels.push(createPanel(panelNames[1],  0.040,  0.000, -0.70, panelColors[1]));
+panels.push(createPanel(panelNames[2], -0.040, -0.025, -1.05, panelColors[2]));
+panels.push(createPanel(panelNames[3],  0.025,  0.060, -1.40, panelColors[3]));  // far
 
 // ─── Cone projection + overlap detection ─────────────────────────────
 function projectToAngular(pos) {
@@ -508,7 +510,7 @@ renderer.domElement.addEventListener('mousemove', (e) => {
 
 // ─── GUI ─────────────────────────────────────────────────────────────
 const params = {
-  coneDepth: 0.65,
+  coneDepth: 1.5,
   resolve: () => { resolveActive = true; resolveConflicts(); },
   reset: () => {
     resolveActive = false;
