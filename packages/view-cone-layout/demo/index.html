@@ -7,6 +7,17 @@
 <style>
   #info { position:fixed;top:12px;left:12px;z-index:10;font-size:10px;color:var(--dim); }
   #overlap-log { position:fixed;bottom:12px;left:12px;z-index:10;font-size:10px;color:var(--dim);max-height:120px;overflow-y:auto; }
+  #ops-log {
+    position:fixed; top:12px; right:340px; z-index:10;
+    font-size:10px; color:var(--dim); font-family: 'JetBrains Mono', 'SF Mono', Consolas, monospace;
+    max-width:300px; max-height:240px; overflow-y:auto;
+    padding:8px 12px;
+  }
+  #ops-log .op-row { white-space: nowrap; line-height: 1.4; }
+  #ops-log .op-name { color:#dfdfdf; }
+  #ops-log .op-args { opacity:0.6; }
+  #ops-log .op-time { opacity:0.4; }
+  #ops-log .op-current { color:#6cdc8c; }
   #scene-cam-preview {
     position:fixed; bottom:12px; right:12px; z-index:10;
     border: 1px solid rgba(14,52,160,0.5); border-radius: 4px;
@@ -25,6 +36,7 @@
   <div id="stats"></div>
 </div>
 <div id="overlap-log" class="panel" style="padding:8px 12px"></div>
+<div id="ops-log" class="panel"></div>
 <div id="scene-cam-label" style="bottom:202px; width:320px;">Scene Camera View</div>
 <canvas id="scene-cam-preview" width="640" height="384"></canvas>
 
@@ -745,6 +757,71 @@ renderer.domElement.addEventListener('mousemove', (e) => {
   mouse.y = -(e.clientY / innerHeight) * 2 + 1;
 });
 
+// ─── Inspector + tween system (slow-motion + logging) ───────────────
+// `inspect.verbose` is the master switch. When on:
+//   - position changes lerp at a slower rate so they're easy to follow
+//   - frame/text changes animate via tween() instead of snapping
+//   - each op logs to the on-screen ops-log panel
+//   - runSequence awaits each step's animation + a configurable inter-step gap
+// When off, ops snap and runSequence runs straight through (existing behavior).
+
+const inspect = {
+  verbose: false,
+  stepDelayMs: 600,        // pause between sequence steps
+  animDurationMs: 600,     // duration of each animated transition
+  positionLerpFast: 0.05,  // existing per-frame lerp factor (snappy)
+  positionLerpSlow: 0.012, // verbose-mode lerp factor (~4× slower)
+};
+
+const _tweens = [];
+function tween({ duration, ease = (t) => 1 - Math.pow(1 - t, 3), onUpdate }) {
+  return new Promise(resolve => {
+    const tw = {
+      start: performance.now(),
+      tick(now) {
+        const u = Math.min(1, (now - this.start) / duration);
+        onUpdate(ease(u));
+        if (u >= 1) { resolve(); return false; }
+        return true;
+      },
+    };
+    _tweens.push(tw);
+  });
+}
+function tickTweens(now) {
+  for (let i = _tweens.length - 1; i >= 0; i--) {
+    if (!_tweens[i].tick(now)) _tweens.splice(i, 1);
+  }
+}
+
+const _logEl = () => document.getElementById('ops-log');
+function logOp(opName, args) {
+  const el = _logEl();
+  if (!el) return;
+  // Mark previously-current step as past
+  for (const r of el.querySelectorAll('.op-current')) r.classList.remove('op-current');
+  const ts = new Date().toLocaleTimeString('en-US', { hour12: false }).split(' ')[0];
+  const argsStr = args && Object.keys(args).length
+    ? ' <span class="op-args">' + JSON.stringify(args) + '</span>'
+    : '';
+  const row = document.createElement('div');
+  row.className = 'op-row op-current';
+  row.innerHTML = `<span class="op-time">${ts}</span> <span class="op-name">${opName}</span>${argsStr}`;
+  el.appendChild(row);
+  while (el.children.length > 24) el.removeChild(el.firstChild);
+  el.scrollTop = el.scrollHeight;
+  if (inspect.verbose) console.log(`[ops] ${opName}`, args || {});
+}
+
+/** Helper: run an animation if verbose, snap if not. Returns Promise<void>. */
+function maybeAnimate(snap, animator) {
+  if (inspect.verbose && inspect.animDurationMs > 0) {
+    return animator(inspect.animDurationMs);
+  }
+  snap();
+  return Promise.resolve();
+}
+
 // ─── Layout ops registry ─────────────────────────────────────────────
 // Each op is a self-describing record: { description, args, apply(ctx, args) }
 // `apply` mutates state in place and returns an `undo` function capturing
@@ -771,18 +848,51 @@ const ctx = {
   readabilityTargetPx: READABILITY_TARGET_PX,
 };
 
+// Animator helpers — used by ops to interpolate frame/text changes when verbose.
+function animateFrameSize(panels, beforeWH, afterWH, duration) {
+  return tween({
+    duration,
+    onUpdate: (t) => {
+      for (let i = 0; i < panels.length; i++) {
+        const w = beforeWH[i].w + (afterWH[i].w - beforeWH[i].w) * t;
+        const h = beforeWH[i].h + (afterWH[i].h - beforeWH[i].h) * t;
+        panels[i].setFixedFrameSize(w * 100, h * 100);
+      }
+    },
+  });
+}
+function animateTextScale(panels, beforeScales, afterScales, duration) {
+  return tween({
+    duration,
+    onUpdate: (t) => {
+      for (let i = 0; i < panels.length; i++) {
+        const s = beforeScales[i] + (afterScales[i] - beforeScales[i]) * t;
+        panels[i].setTextScale(s);
+      }
+    },
+  });
+}
+
 const ops = {
   resolveOverlaps: {
     description: "Iteratively push panels apart in angular space until no view-dependent overlaps remain.",
     args: {},
     apply(c) {
+      logOp('resolveOverlaps');
       const before = c.panels.map(p => p.worldPos.clone());
       c.setResolveActive(true);
       c.resolveConflicts();
-      return () => {
+      // Position transitions are handled by the existing resolvedTargets lerp.
+      // In verbose mode the lerp factor is slowed; we just wait a duration that
+      // covers the visible motion.
+      const done = inspect.verbose
+        ? new Promise(r => setTimeout(r, inspect.animDurationMs * 1.5))
+        : Promise.resolve();
+      const undo = () => {
         c.setResolveActive(false);
         for (let i = 0; i < c.panels.length; i++) c.panels[i].group.position.copy(before[i]);
       };
+      return { undo, done };
     },
   },
 
@@ -790,15 +900,25 @@ const ops = {
     description: "Restore every panel to its initial position from the layout's INITIAL_POSITIONS.",
     args: {},
     apply(c) {
+      logOp('resetPositions');
       const before = c.panels.map(p => p.worldPos.clone());
       c.setResolveActive(false);
-      for (let i = 0; i < c.panels.length; i++) {
-        const [x, y, z] = c.initialPositions[i];
-        c.panels[i].group.position.set(x, y, z);
-      }
+      const after = c.initialPositions.map(([x, y, z]) => new THREE.Vector3(x, y, z));
       for (const k in c.resolvedTargets) c.resolvedTargets[k] = null;
-      return () => {
-        for (let i = 0; i < c.panels.length; i++) c.panels[i].group.position.copy(before[i]);
+      const done = maybeAnimate(
+        () => after.forEach((v, i) => c.panels[i].group.position.copy(v)),
+        (dur) => tween({
+          duration: dur,
+          onUpdate: (t) => {
+            for (let i = 0; i < c.panels.length; i++) {
+              c.panels[i].group.position.lerpVectors(before[i], after[i], t);
+            }
+          },
+        })
+      );
+      return {
+        undo: () => before.forEach((v, i) => c.panels[i].group.position.copy(v)),
+        done,
       };
     },
   },
@@ -807,9 +927,23 @@ const ops = {
     description: "Resize every panel frame to fit current text content + padding. Idempotent.",
     args: {},
     apply(c) {
+      logOp('shrinkwrapAll');
       const before = c.panels.map(p => ({ w: p.w, h: p.h }));
+      // Compute target dims (shrinkwrap mutates in place)
       c.panels.forEach(p => p.shrinkwrap());
-      return () => c.panels.forEach((p, i) => p.setFixedFrameSize(before[i].w * 100, before[i].h * 100));
+      const after = c.panels.map(p => ({ w: p.w, h: p.h }));
+      // If animating, restore to before then tween to after
+      if (inspect.verbose && inspect.animDurationMs > 0) {
+        c.panels.forEach((p, i) => p.setFixedFrameSize(before[i].w * 100, before[i].h * 100));
+      }
+      const done = maybeAnimate(
+        () => {},   // already at target
+        (dur) => animateFrameSize(c.panels, before, after, dur)
+      );
+      return {
+        undo: () => c.panels.forEach((p, i) => p.setFixedFrameSize(before[i].w * 100, before[i].h * 100)),
+        done,
+      };
     },
   },
 
@@ -817,9 +951,18 @@ const ops = {
     description: "Set every panel frame to the same explicit size in cm.",
     args: { wCm: { type: 'number', default: 20 }, hCm: { type: 'number', default: 8 } },
     apply(c, { wCm = 20, hCm = 8 } = {}) {
+      logOp('setUniformFrames', { wCm, hCm });
       const before = c.panels.map(p => ({ w: p.w, h: p.h }));
-      c.panels.forEach(p => p.setFixedFrameSize(wCm, hCm));
-      return () => c.panels.forEach((p, i) => p.setFixedFrameSize(before[i].w * 100, before[i].h * 100));
+      const targetW = wCm * 0.01, targetH = hCm * 0.01;
+      const after = c.panels.map(() => ({ w: targetW, h: targetH }));
+      const done = maybeAnimate(
+        () => c.panels.forEach(p => p.setFixedFrameSize(wCm, hCm)),
+        (dur) => animateFrameSize(c.panels, before, after, dur)
+      );
+      return {
+        undo: () => c.panels.forEach((p, i) => p.setFixedFrameSize(before[i].w * 100, before[i].h * 100)),
+        done,
+      };
     },
   },
 
@@ -827,14 +970,21 @@ const ops = {
     description: "Scale each panel's text to hit a target on-screen pixel height. View-aware: uses current Display PPD and per-panel distance from camera.",
     args: { targetPx: { type: 'number', default: 24, min: 8, max: 120 } },
     apply(c, { targetPx = 24 } = {}) {
+      logOp('fitReadability', { targetPx });
       const before = c.panels.map(p => p.textScale);
-      for (const p of c.panels) {
+      const after = c.panels.map(p => {
         const m = getPanelTextMetrics(p, c.cam.ppd);
         const ratio = targetPx / m.pixelHeight;
-        const newScale = Math.max(0.3, Math.min(3.0, p.textScale * ratio));
-        p.setTextScale(newScale);
-      }
-      return () => c.panels.forEach((p, i) => p.setTextScale(before[i]));
+        return Math.max(0.3, Math.min(3.0, p.textScale * ratio));
+      });
+      const done = maybeAnimate(
+        () => c.panels.forEach((p, i) => p.setTextScale(after[i])),
+        (dur) => animateTextScale(c.panels, before, after, dur)
+      );
+      return {
+        undo: () => c.panels.forEach((p, i) => p.setTextScale(before[i])),
+        done,
+      };
     },
   },
 
@@ -842,9 +992,17 @@ const ops = {
     description: "Set every panel's text scale to the same multiplier (1.0 = baseline font size).",
     args: { scale: { type: 'number', default: 1.0, min: 0.3, max: 3.0 } },
     apply(c, { scale = 1.0 } = {}) {
+      logOp('setUniformTextScale', { scale });
       const before = c.panels.map(p => p.textScale);
-      c.panels.forEach(p => p.setTextScale(scale));
-      return () => c.panels.forEach((p, i) => p.setTextScale(before[i]));
+      const after = c.panels.map(() => scale);
+      const done = maybeAnimate(
+        () => c.panels.forEach(p => p.setTextScale(scale)),
+        (dur) => animateTextScale(c.panels, before, after, dur)
+      );
+      return {
+        undo: () => c.panels.forEach((p, i) => p.setTextScale(before[i])),
+        done,
+      };
     },
   },
 
@@ -852,9 +1010,17 @@ const ops = {
     description: "Restore every panel's text scale to 1.0 (baseline).",
     args: {},
     apply(c) {
+      logOp('resetTextScale');
       const before = c.panels.map(p => p.textScale);
-      c.panels.forEach(p => p.setTextScale(1.0));
-      return () => c.panels.forEach((p, i) => p.setTextScale(before[i]));
+      const after = c.panels.map(() => 1.0);
+      const done = maybeAnimate(
+        () => c.panels.forEach(p => p.setTextScale(1.0)),
+        (dur) => animateTextScale(c.panels, before, after, dur)
+      );
+      return {
+        undo: () => c.panels.forEach((p, i) => p.setTextScale(before[i])),
+        done,
+      };
     },
   },
 
@@ -862,24 +1028,40 @@ const ops = {
     description: "Replace a panel's text content by index. Re-renders the label, leaves frame and scale alone.",
     args: { index: { type: 'number' }, text: { type: 'string' } },
     apply(c, { index, text }) {
+      logOp('setPanelText', { index, text });
       const p = c.panels[index];
       const before = p.text;
       p.setText(text);
-      return () => p.setText(before);
+      return {
+        undo: () => p.setText(before),
+        done: Promise.resolve(),
+      };
     },
   },
 };
 
 /**
- * Run an ordered list of op invocations and return a single undo() function
- * that walks them back in reverse. Each step is `{ op: 'name', args?: {...} }`.
+ * Run an ordered list of op invocations. Async; awaits each step's animation
+ * (in verbose mode) and inserts a configurable gap between steps so a viewer
+ * can follow what's happening.
+ *
+ * Returns Promise<undo>. The resolved undo() walks every step's inverse in
+ * reverse order, ignoring the verbose pacing.
+ *
+ * Each step is `{ op: 'name', args?: {...} }`.
  */
-function runSequence(c, steps) {
+async function runSequence(c, steps) {
   const undos = [];
-  for (const step of steps) {
+  for (let i = 0; i < steps.length; i++) {
+    const step = steps[i];
     const op = ops[step.op];
     if (!op) throw new Error(`runSequence: unknown op '${step.op}'`);
-    undos.push(op.apply(c, step.args || {}));
+    const { undo, done } = op.apply(c, step.args || {});
+    undos.push(undo);
+    await done;
+    if (inspect.verbose && i < steps.length - 1 && inspect.stepDelayMs > 0) {
+      await new Promise(r => setTimeout(r, inspect.stepDelayMs));
+    }
   }
   return () => { for (let i = undos.length - 1; i >= 0; i--) undos[i] && undos[i](); };
 }
@@ -928,19 +1110,29 @@ const refreshTextSliders = () => {
   }
 };
 
-const guiOp = (name, args) => () => {
-  ops[name].apply(ctx, args);
+const guiOp = (name, args) => async () => {
+  const { done } = ops[name].apply(ctx, args);
+  await done;
   refreshTextSliders();
 };
 
-gui.add({ pass: () => {
-  runSequence(ctx, [
+gui.add({ pass: async () => {
+  await runSequence(ctx, [
     { op: 'fitReadability', args: { targetPx: READABILITY_TARGET_PX } },
     { op: 'shrinkwrapAll' },
     { op: 'resolveOverlaps' },
   ]);
   refreshTextSliders();
 } }, 'pass').name('▶ Run Layout Pass');
+
+const inspectFolder = gui.addFolder('Inspector');
+inspectFolder.add(inspect, 'verbose').name('Verbose / Slow Motion');
+inspectFolder.add(inspect, 'stepDelayMs', 0, 2000, 50).name('Step Delay (ms)');
+inspectFolder.add(inspect, 'animDurationMs', 0, 2000, 50).name('Anim Duration (ms)');
+inspectFolder.add({ clear: () => {
+  const el = document.getElementById('ops-log');
+  if (el) el.innerHTML = '';
+} }, 'clear').name('Clear Log');
 
 gui.add({ resolve: guiOp('resolveOverlaps') }, 'resolve').name('Resolve Overlaps');
 gui.add({ reset: guiOp('resetPositions') }, 'reset').name('Reset Positions');
@@ -1072,15 +1264,18 @@ function animate() {
   // Update overlap frustum volumes
   updateOverlapVolumes();
 
-  // Smooth move toward resolved targets
+  // Smooth move toward resolved targets. Verbose mode slows the lerp so
+  // each push-apart step is visible.
   if (resolveActive) {
+    const k = inspect.verbose ? inspect.positionLerpSlow : inspect.positionLerpFast;
     for (const panel of panels) {
       const target = resolvedTargets[panel.name];
       if (target) {
-        panel.group.position.lerp(target, 0.05);
+        panel.group.position.lerp(target, k);
       }
     }
   }
+  tickTweens(performance.now());
 
   // Update connection lines
   for (let i = 0; i < panels.length; i++) {
