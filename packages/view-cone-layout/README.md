@@ -8,9 +8,9 @@ When you place panels in 3D space in front of the user, two panels at different 
 
 ## Demo
 
-![view-cone-layout screenshot](media/screenshot.png)
+![view-cone-layout demo](media/demo.gif)
 
-The four colored panels are placed in 3D space; the inset bottom-right shows what the user actually sees through Spectacles; the bottom-left log lists which pairs overlap from that point of view. Hit `Resolve Overlaps` and the panels separate in real time.
+Four panels of varying text length sit at depths from 40 cm to 1.4 m. The inset bottom-right shows what the wearer actually sees, with the panels overlapping. Hitting **Run Layout Pass** triggers the canonical view-aware sequence: scale each panel's text toward the readability target, refit each frame around the new text, then push panels apart in angular space until none overlap from the wearer's point of view.
 
 To run the demo locally:
 
