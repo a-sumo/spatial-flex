@@ -745,18 +745,154 @@ renderer.domElement.addEventListener('mousemove', (e) => {
   mouse.y = -(e.clientY / innerHeight) * 2 + 1;
 });
 
+// ─── Layout ops registry ─────────────────────────────────────────────
+// Each op is a self-describing record: { description, args, apply(ctx, args) }
+// `apply` mutates state in place and returns an `undo` function capturing
+// the prior state. Use cases:
+//   - rewire GUI buttons through a single contract
+//   - call ops directly from the console for ad-hoc layout passes
+//   - hand `ops` (with descriptions + arg schemas) to an LLM tool spec so
+//     an agent can compose view-aware passes on dynamically populated UI
+//
+// The intended canonical macro is fitReadability → shrinkwrapAll →
+// resolveOverlaps: scale text to legible, refit frames, then push apart.
+// Each step is reversible; the macro itself is reversible because
+// runSequence collects every undo.
+
+const DEFAULT_FRAME_SIZE_CM = { w: 20, h: 8 };
+
+const ctx = {
+  panels,
+  initialPositions: INITIAL_POSITIONS,
+  resolveConflicts,
+  resolvedTargets,
+  setResolveActive: (v) => { resolveActive = v; },
+  cam,                   // exposes .ppd live
+  readabilityTargetPx: READABILITY_TARGET_PX,
+};
+
+const ops = {
+  resolveOverlaps: {
+    description: "Iteratively push panels apart in angular space until no view-dependent overlaps remain.",
+    args: {},
+    apply(c) {
+      const before = c.panels.map(p => p.worldPos.clone());
+      c.setResolveActive(true);
+      c.resolveConflicts();
+      return () => {
+        c.setResolveActive(false);
+        for (let i = 0; i < c.panels.length; i++) c.panels[i].group.position.copy(before[i]);
+      };
+    },
+  },
+
+  resetPositions: {
+    description: "Restore every panel to its initial position from the layout's INITIAL_POSITIONS.",
+    args: {},
+    apply(c) {
+      const before = c.panels.map(p => p.worldPos.clone());
+      c.setResolveActive(false);
+      for (let i = 0; i < c.panels.length; i++) {
+        const [x, y, z] = c.initialPositions[i];
+        c.panels[i].group.position.set(x, y, z);
+      }
+      for (const k in c.resolvedTargets) c.resolvedTargets[k] = null;
+      return () => {
+        for (let i = 0; i < c.panels.length; i++) c.panels[i].group.position.copy(before[i]);
+      };
+    },
+  },
+
+  shrinkwrapAll: {
+    description: "Resize every panel frame to fit current text content + padding. Idempotent.",
+    args: {},
+    apply(c) {
+      const before = c.panels.map(p => ({ w: p.w, h: p.h }));
+      c.panels.forEach(p => p.shrinkwrap());
+      return () => c.panels.forEach((p, i) => p.setFixedFrameSize(before[i].w * 100, before[i].h * 100));
+    },
+  },
+
+  setUniformFrames: {
+    description: "Set every panel frame to the same explicit size in cm.",
+    args: { wCm: { type: 'number', default: 20 }, hCm: { type: 'number', default: 8 } },
+    apply(c, { wCm = 20, hCm = 8 } = {}) {
+      const before = c.panels.map(p => ({ w: p.w, h: p.h }));
+      c.panels.forEach(p => p.setFixedFrameSize(wCm, hCm));
+      return () => c.panels.forEach((p, i) => p.setFixedFrameSize(before[i].w * 100, before[i].h * 100));
+    },
+  },
+
+  fitReadability: {
+    description: "Scale each panel's text to hit a target on-screen pixel height. View-aware: uses current Display PPD and per-panel distance from camera.",
+    args: { targetPx: { type: 'number', default: 24, min: 8, max: 120 } },
+    apply(c, { targetPx = 24 } = {}) {
+      const before = c.panels.map(p => p.textScale);
+      for (const p of c.panels) {
+        const m = getPanelTextMetrics(p, c.cam.ppd);
+        const ratio = targetPx / m.pixelHeight;
+        const newScale = Math.max(0.3, Math.min(3.0, p.textScale * ratio));
+        p.setTextScale(newScale);
+      }
+      return () => c.panels.forEach((p, i) => p.setTextScale(before[i]));
+    },
+  },
+
+  setUniformTextScale: {
+    description: "Set every panel's text scale to the same multiplier (1.0 = baseline font size).",
+    args: { scale: { type: 'number', default: 1.0, min: 0.3, max: 3.0 } },
+    apply(c, { scale = 1.0 } = {}) {
+      const before = c.panels.map(p => p.textScale);
+      c.panels.forEach(p => p.setTextScale(scale));
+      return () => c.panels.forEach((p, i) => p.setTextScale(before[i]));
+    },
+  },
+
+  resetTextScale: {
+    description: "Restore every panel's text scale to 1.0 (baseline).",
+    args: {},
+    apply(c) {
+      const before = c.panels.map(p => p.textScale);
+      c.panels.forEach(p => p.setTextScale(1.0));
+      return () => c.panels.forEach((p, i) => p.setTextScale(before[i]));
+    },
+  },
+
+  setPanelText: {
+    description: "Replace a panel's text content by index. Re-renders the label, leaves frame and scale alone.",
+    args: { index: { type: 'number' }, text: { type: 'string' } },
+    apply(c, { index, text }) {
+      const p = c.panels[index];
+      const before = p.text;
+      p.setText(text);
+      return () => p.setText(before);
+    },
+  },
+};
+
+/**
+ * Run an ordered list of op invocations and return a single undo() function
+ * that walks them back in reverse. Each step is `{ op: 'name', args?: {...} }`.
+ */
+function runSequence(c, steps) {
+  const undos = [];
+  for (const step of steps) {
+    const op = ops[step.op];
+    if (!op) throw new Error(`runSequence: unknown op '${step.op}'`);
+    undos.push(op.apply(c, step.args || {}));
+  }
+  return () => { for (let i = undos.length - 1; i >= 0; i--) undos[i] && undos[i](); };
+}
+
+// Expose for direct invocation from console / external callers / AI agents.
+//   await window.runSequence([{ op: 'fitReadability', args: { targetPx: 24 } }, { op: 'shrinkwrapAll' }, { op: 'resolveOverlaps' }]);
+window.layoutOps = ops;
+window.layoutCtx = ctx;
+window.runSequence = (steps) => runSequence(ctx, steps);
+
 // ─── GUI ─────────────────────────────────────────────────────────────
 const params = {
   coneDepth: 1.5,
-  resolve: () => { resolveActive = true; resolveConflicts(); },
-  reset: () => {
-    resolveActive = false;
-    for (let i = 0; i < panels.length; i++) {
-      const [x, y, z] = INITIAL_POSITIONS[i];
-      panels[i].group.position.set(x, y, z);
-    }
-    for (const k in resolvedTargets) resolvedTargets[k] = null;
-  },
 };
 const gui = new GUI({ title: 'View Cone' });
 
@@ -781,20 +917,38 @@ gui.add(params, 'coneDepth', 0.3, 1.5, 0.05).name('Far Plane').onChange(v => {
   buildConeOutlines(v);
   buildDepthRuler(v);
 });
-gui.add(params, 'resolve').name('Resolve Overlaps');
-gui.add(params, 'reset').name('Reset Positions');
+// All buttons delegate to ops. Per-panel text-scale sliders bypass the
+// registry (they're a continuous controller, not a discrete action), but
+// the slider proxies refresh after any op that touches textScale so the
+// GUI stays in sync.
+const refreshTextSliders = () => {
+  for (const { panel, ctl, proxy } of textControllers) {
+    proxy.scale = panel.textScale;
+    ctl.updateDisplay();
+  }
+};
 
-const DEFAULT_FRAME_SIZE_CM = { w: 20, h: 8 };
-gui.add({
-  shrinkwrap: () => { for (const p of panels) p.shrinkwrap(); },
-}, 'shrinkwrap').name('Shrinkwrap to Text');
-gui.add({
-  resetFrames: () => {
-    for (const p of panels) p.setFixedFrameSize(DEFAULT_FRAME_SIZE_CM.w, DEFAULT_FRAME_SIZE_CM.h);
-  },
-}, 'resetFrames').name('Reset Frame Sizes');
+const guiOp = (name, args) => () => {
+  ops[name].apply(ctx, args);
+  refreshTextSliders();
+};
 
-// ─── Per-panel text size + auto-fit readability ──────────────────────
+gui.add({ pass: () => {
+  runSequence(ctx, [
+    { op: 'fitReadability', args: { targetPx: READABILITY_TARGET_PX } },
+    { op: 'shrinkwrapAll' },
+    { op: 'resolveOverlaps' },
+  ]);
+  refreshTextSliders();
+} }, 'pass').name('▶ Run Layout Pass');
+
+gui.add({ resolve: guiOp('resolveOverlaps') }, 'resolve').name('Resolve Overlaps');
+gui.add({ reset: guiOp('resetPositions') }, 'reset').name('Reset Positions');
+gui.add({ shrinkwrap: guiOp('shrinkwrapAll') }, 'shrinkwrap').name('Shrinkwrap to Text');
+gui.add({ resetFrames: guiOp('setUniformFrames', { wCm: DEFAULT_FRAME_SIZE_CM.w, hCm: DEFAULT_FRAME_SIZE_CM.h }) },
+  'resetFrames').name('Reset Frame Sizes');
+
+// ─── Per-panel text size sliders + readability ops ───────────────────
 const textFolder = gui.addFolder('Panel Text Size');
 const textControllers = [];
 for (const p of panels) {
@@ -803,27 +957,9 @@ for (const p of panels) {
   ctl.onChange(v => p.setTextScale(v));
   textControllers.push({ panel: p, ctl, proxy });
 }
-textFolder.add({
-  fit: () => {
-    for (const { panel, ctl, proxy } of textControllers) {
-      const m = getPanelTextMetrics(panel, cam.ppd);
-      const ratio = READABILITY_TARGET_PX / m.pixelHeight;
-      const newScale = Math.max(0.3, Math.min(3.0, panel.textScale * ratio));
-      panel.setTextScale(newScale);
-      proxy.scale = newScale;
-      ctl.updateDisplay();
-    }
-  },
-}, 'fit').name(`Auto-fit to ${READABILITY_TARGET_PX} px`);
-
-function resetAllTextScales() {
-  for (const { panel, ctl, proxy } of textControllers) {
-    panel.setTextScale(1.0);
-    proxy.scale = 1.0;
-    ctl.updateDisplay();
-  }
-}
-textFolder.add({ reset: resetAllTextScales }, 'reset').name('Reset Text Sizes');
+textFolder.add({ fit: guiOp('fitReadability', { targetPx: READABILITY_TARGET_PX }) },
+  'fit').name(`Auto-fit to ${READABILITY_TARGET_PX} px`);
+textFolder.add({ reset: guiOp('resetTextScale') }, 'reset').name('Reset Text Sizes');
 
 // Orbit camera controls
 const viewFolder = gui.addFolder('View Camera');
