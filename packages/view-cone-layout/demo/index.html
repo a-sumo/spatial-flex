@@ -52,6 +52,7 @@ const cam = {
   vFov: 30,      // Spectacles vertical FOV
   hFov: 50,      // Spectacles horizontal FOV
   aspect: 50/30,
+  ppd: 30,       // Display angular resolution: pixels per degree (Spectacles ballpark)
 };
 let H_FOV = cam.hFov;
 let V_FOV = cam.vFov;
@@ -321,12 +322,50 @@ function createPanel(name, x, y, z, color, w = 0.2, h = 0.08) {
   group.position.set(x, y, z);
   scene.add(group);
 
+  // Original label geometry parameters — used for text-size scaling
+  // and for computing apparent pixel size on the wearer's display.
+  const LABEL_FONT_PX = 28;        // font size used to render the canvas texture
+  const LABEL_CANVAS_H = 64;       // canvas height in pixels
+  const LABEL_PLANE_H = h * 0.5;   // label plane height in world meters
+  // World height of one cap (font glyph) at scale=1.0:
+  const baselineCapHWorld = LABEL_PLANE_H * (LABEL_FONT_PX / LABEL_CANVAS_H);
+
   return {
-    name, group, face, faceMat, borderMat, w, h,
+    name, group, face, faceMat, borderMat, label, w, h,
     hovered: false, sector: '', conflicts: [],
+    textScale: 1.0,
+    baselineCapHWorld,
     get worldPos() { return group.position; },
+    setTextScale(s) {
+      this.textScale = s;
+      this.label.scale.set(s, s, 1);
+    },
   };
 }
+
+/**
+ * Compute the apparent text size on the wearer's display.
+ *
+ *   distance     — Euclidean distance from camera origin to panel (meters)
+ *   angularDeg   — vertical angular height of one cap, in degrees
+ *   pixelHeight  — apparent cap height on display (px), assuming `ppd` pixels per degree
+ *   status       — 'good' (>= 24 px), 'marginal' (14-23), 'poor' (< 14)
+ *
+ * Thresholds follow standard HMD readability guidance: 24+ px for body text,
+ * 14-23 borderline, below 14 effectively unreadable on current AR optics.
+ */
+function getPanelTextMetrics(panel, ppd) {
+  const p = panel.worldPos;
+  const distance = Math.sqrt(p.x * p.x + p.y * p.y + p.z * p.z);
+  const capH = panel.baselineCapHWorld * panel.textScale;
+  const angularRad = 2 * Math.atan(capH / 2 / distance);
+  const angularDeg = angularRad * 180 / Math.PI;
+  const pixelHeight = angularDeg * ppd;
+  const status = pixelHeight >= 24 ? 'good' : pixelHeight >= 14 ? 'marginal' : 'poor';
+  return { distance, angularDeg, pixelHeight, status };
+}
+
+const READABILITY_TARGET_PX = 24;   // auto-fit aims for this
 
 // Initial positions — clustered in angular space, spread in Z so the
 // view-dependent nature of the overlap is obvious from orbit view.
@@ -605,12 +644,35 @@ camFolder.add(cam, 'vFov', 15, 90, 1).name('V-FOV°').onChange(v => {
   buildConeOutlines(params.coneDepth);
   updateSceneCamera();
 });
+camFolder.add(cam, 'ppd', 10, 80, 1).name('Display PPD');
 gui.add(params, 'coneDepth', 0.3, 1.5, 0.05).name('Far Plane').onChange(v => {
   buildConeOutlines(v);
   buildDepthRuler(v);
 });
 gui.add(params, 'resolve').name('Resolve Overlaps');
 gui.add(params, 'reset').name('Reset Positions');
+
+// ─── Per-panel text size + auto-fit readability ──────────────────────
+const textFolder = gui.addFolder('Panel Text Size');
+const textControllers = [];
+for (const p of panels) {
+  const proxy = { scale: 1.0 };
+  const ctl = textFolder.add(proxy, 'scale', 0.3, 3.0, 0.05).name(p.name);
+  ctl.onChange(v => p.setTextScale(v));
+  textControllers.push({ panel: p, ctl, proxy });
+}
+textFolder.add({
+  fit: () => {
+    for (const { panel, ctl, proxy } of textControllers) {
+      const m = getPanelTextMetrics(panel, cam.ppd);
+      const ratio = READABILITY_TARGET_PX / m.pixelHeight;
+      const newScale = Math.max(0.3, Math.min(3.0, panel.textScale * ratio));
+      panel.setTextScale(newScale);
+      proxy.scale = newScale;
+      ctl.updateDisplay();
+    }
+  },
+}, 'fit').name(`Auto-fit to ${READABILITY_TARGET_PX} px`);
 
 // Orbit camera controls
 const viewFolder = gui.addFolder('View Camera');
@@ -740,12 +802,21 @@ function animate() {
     connectionLines[i].geometry = new THREE.BufferGeometry().setFromPoints(pts);
   }
 
-  // Stats
-  const sectorList = panels.map(p => {
+  // Stats — sector + readability per panel
+  const STATUS_COLOR = { good: '#6cdc8c', marginal: '#c85020', poor: '#e03020' };
+  const rows = panels.map(p => {
     const proj = projectToAngular(p.worldPos);
-    return proj ? `${p.name}: ${getSector(proj.az, proj.el)}` : `${p.name}: ?`;
+    const sector = proj ? getSector(proj.az, proj.el) : '?';
+    const m = getPanelTextMetrics(p, cam.ppd);
+    const dCm = (m.distance * 100).toFixed(0);
+    const px = m.pixelHeight.toFixed(0);
+    const color = STATUS_COLOR[m.status];
+    return `<span style="opacity:0.7">${p.name}</span> ${sector}` +
+           ` <span style="opacity:0.5">·</span> ${dCm}cm` +
+           ` <span style="opacity:0.5">·</span> <span style="color:${color}">${px}px ${m.status}</span>`;
   });
-  document.getElementById('stats').innerHTML = sectorList.join('<br>');
+  const ppdNote = `<span style="opacity:0.5;font-size:9px">${cam.ppd} ppd · target ${READABILITY_TARGET_PX}px</span>`;
+  document.getElementById('stats').innerHTML = rows.join('<br>') + '<br>' + ppdNote;
   document.getElementById('overlap-log').innerHTML = overlaps.length > 0
     ? '<span style="color:var(--red)">OVERLAPS:</span><br>' + overlaps.map(([a,b]) => `${a} x ${b}`).join('<br>')
     : '<span style="color:#4a4">No overlaps</span>';
