@@ -1,0 +1,7 @@
+.DS_Store
+*.log
+
+# Lens Studio caches (if someone clones into an LS project)
+Cache/
+Logs/
+.vscode/
