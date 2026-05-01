@@ -1,0 +1,708 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>View Cone Layout Demo</title>
+<link rel="stylesheet" href="src/shared.css">
+<style>
+  #info { position:fixed;top:12px;left:12px;z-index:10;font-size:10px;color:var(--dim); }
+  #overlap-log { position:fixed;bottom:12px;left:12px;z-index:10;font-size:10px;color:var(--dim);max-height:120px;overflow-y:auto; }
+  #scene-cam-preview {
+    position:fixed; bottom:12px; right:12px; z-index:10;
+    border: 1px solid rgba(24,120,224,0.4); border-radius: 4px;
+    background: #0a0a0c;
+  }
+  #scene-cam-label {
+    position:fixed; right:12px; z-index:10;
+    font-size:9px; color:var(--dim); text-align:center;
+    letter-spacing:0.05em; text-transform:uppercase;
+  }
+</style>
+</head>
+<body>
+<div id="info" class="panel" style="padding:8px 12px">
+  <div style="font-size:11px;font-weight:600;color:var(--text);margin-bottom:4px">View Cone Layout</div>
+  <div id="stats"></div>
+</div>
+<div id="overlap-log" class="panel" style="padding:8px 12px"></div>
+<div id="scene-cam-label" style="bottom:202px; width:320px;">Scene Camera View</div>
+<canvas id="scene-cam-preview" width="640" height="384"></canvas>
+
+<script type="module">
+import * as THREE from 'three';
+import { createStudioScene } from './src/studio-scene.js';
+import { createGnomon } from './src/gnomon.js';
+import GUI from 'lil-gui';
+
+const { scene, camera, renderer, controls, grid, floor, setBackground } = createStudioScene({
+  cameraPos: [0, 0.3, 1.2], target: [0, 0, -0.5], fov: 50,
+  shadows: false, maxPolarAngle: Math.PI * 0.9,
+});
+setBackground('#18181b');
+if (grid) grid.visible = false;
+if (floor) floor.visible = false;
+const gnomon = createGnomon(camera, controls, { target: controls.target });
+
+const RAD = Math.PI / 180;
+
+// Camera intrinsics — mutable via GUI
+// Scene camera intrinsics (Spectacles eye — NOT the orbit camera)
+const cam = {
+  near: 0.08,
+  vFov: 30,      // Spectacles vertical FOV
+  hFov: 50,      // Spectacles horizontal FOV
+  aspect: 50/30,
+};
+let H_FOV = cam.hFov;
+let V_FOV = cam.vFov;
+
+// Orbit camera (what you view through) — separate from scene camera
+let useOrtho = false;
+let orthoCamera = null;
+
+// Scene camera — fixed at origin, looking -Z, represents user's eye
+const sceneCamera = new THREE.PerspectiveCamera(cam.vFov, cam.hFov / cam.vFov, cam.near, 10);
+sceneCamera.position.set(0, 0, 0);
+sceneCamera.lookAt(0, 0, -1);
+
+// Preview renderer on the inset canvas
+const previewCanvas = document.getElementById('scene-cam-preview');
+const previewRenderer = new THREE.WebGLRenderer({ canvas: previewCanvas, antialias: true, alpha: true });
+previewRenderer.setPixelRatio(devicePixelRatio);
+previewRenderer.setSize(320, 192);
+previewRenderer.setClearColor(0x0a0a0c, 1);
+
+function updateSceneCamera() {
+  sceneCamera.fov = cam.vFov;
+  sceneCamera.aspect = cam.hFov / cam.vFov;
+  sceneCamera.near = cam.near;
+  sceneCamera.updateProjectionMatrix();
+}
+
+// ─── Cone border outline — projected quad edges from camera ──────────
+const coneMat = new THREE.LineBasicMaterial({ color: 0x1878e0, transparent: true, opacity: 0.25 });
+const coneGroup = new THREE.Group();
+scene.add(coneGroup);
+
+function buildConeOutlines(depth) {
+  while (coneGroup.children.length) coneGroup.remove(coneGroup.children[0]);
+
+  const hHalf = H_FOV / 2 * RAD;
+  const vHalf = V_FOV / 2 * RAD;
+
+  // Outer frustum border at depth
+  const w = Math.tan(hHalf) * depth;
+  const h = Math.tan(vHalf) * depth;
+  const corners = [
+    new THREE.Vector3(-w, h, -depth),
+    new THREE.Vector3(w, h, -depth),
+    new THREE.Vector3(w, -h, -depth),
+    new THREE.Vector3(-w, -h, -depth),
+  ];
+
+  // Outer rect
+  const outerGeo = new THREE.BufferGeometry().setFromPoints([...corners, corners[0]]);
+  coneGroup.add(new THREE.Line(outerGeo, coneMat));
+
+  // Near plane quad
+  const nw = Math.tan(hHalf) * NEAR_PLANE;
+  const nh = Math.tan(vHalf) * NEAR_PLANE;
+  const nearCorners = [
+    new THREE.Vector3(-nw, nh, -NEAR_PLANE),
+    new THREE.Vector3(nw, nh, -NEAR_PLANE),
+    new THREE.Vector3(nw, -nh, -NEAR_PLANE),
+    new THREE.Vector3(-nw, -nh, -NEAR_PLANE),
+  ];
+  const nearGeo = new THREE.BufferGeometry().setFromPoints([...nearCorners, nearCorners[0]]);
+  coneGroup.add(new THREE.Line(nearGeo, new THREE.LineBasicMaterial({ color: 0x1878e0, opacity: 0.5, transparent: true })));
+  // Near plane filled
+  const nearFillGeo = new THREE.PlaneGeometry(nw * 2, nh * 2);
+  const nearFill = new THREE.Mesh(nearFillGeo, new THREE.MeshBasicMaterial({
+    color: 0x1878e0, transparent: true, opacity: 0.04, side: THREE.DoubleSide, depthWrite: false,
+  }));
+  nearFill.position.set(0, 0, -NEAR_PLANE);
+  coneGroup.add(nearFill);
+
+  // Rays from near plane corners to far plane corners
+  for (let i = 0; i < 4; i++) {
+    const rayGeo = new THREE.BufferGeometry().setFromPoints([nearCorners[i], corners[i]]);
+    coneGroup.add(new THREE.Line(rayGeo, new THREE.LineBasicMaterial({ color: 0x1878e0, transparent: true, opacity: 0.1 })));
+  }
+
+  // 3x3 sector grid lines
+  const gridMat = new THREE.LineBasicMaterial({ color: 0x1878e0, transparent: true, opacity: 0.12 });
+  for (let i = 1; i < 3; i++) {
+    const f = -1 + (2 * i / 3);
+    // Vertical grid line
+    const vGeo = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(w * f, h, -depth),
+      new THREE.Vector3(w * f, -h, -depth),
+    ]);
+    coneGroup.add(new THREE.Line(vGeo, gridMat));
+    // Horizontal grid line
+    const hGeo = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(-w, h * f, -depth),
+      new THREE.Vector3(w, h * f, -depth),
+    ]);
+    coneGroup.add(new THREE.Line(hGeo, gridMat));
+  }
+
+  return { w, h };
+}
+
+// ─── Sector highlight quads ──────────────────────────────────────────
+const SECTOR_NAMES = [
+  "TOP-LEFT", "TOP", "TOP-RIGHT",
+  "LEFT", "CENTER", "RIGHT",
+  "BOT-LEFT", "BOTTOM", "BOT-RIGHT",
+];
+
+const sectorMeshes = {};
+let NEAR_PLANE = cam.near;
+
+function buildSectorFrustum(name, row, col, farDepth) {
+  if (sectorMeshes[name]) { scene.remove(sectorMeshes[name]); sectorMeshes[name].geometry.dispose(); }
+
+  const hHalf = H_FOV / 2 * RAD;
+  const vHalf = V_FOV / 2 * RAD;
+  const tanH = Math.tan(hHalf);
+  const tanV = Math.tan(vHalf);
+
+  // Angular bounds for this sector (normalized column/row to tan-space)
+  const azMin = (-1 + col * 2/3) * tanH;
+  const azMax = (-1 + (col+1) * 2/3) * tanH;
+  const elMax = (1 - row * 2/3) * tanV;
+  const elMin = (1 - (row+1) * 2/3) * tanV;
+
+  // 8 corners: 4 on near plane, 4 on far plane (truncated — not from origin)
+  const verts = [];
+  for (const d of [NEAR_PLANE, farDepth]) {
+    verts.push(
+      new THREE.Vector3(azMin * d, elMax * d, -d),
+      new THREE.Vector3(azMax * d, elMax * d, -d),
+      new THREE.Vector3(azMax * d, elMin * d, -d),
+      new THREE.Vector3(azMin * d, elMin * d, -d),
+    );
+  }
+
+  const positions = [];
+  function tri(a, b, c) { positions.push(a.x,a.y,a.z, b.x,b.y,b.z, c.x,c.y,c.z); }
+  // Near face
+  tri(verts[0], verts[1], verts[2]); tri(verts[0], verts[2], verts[3]);
+  // Far face
+  tri(verts[4], verts[6], verts[5]); tri(verts[4], verts[7], verts[6]);
+  // Top
+  tri(verts[0], verts[5], verts[1]); tri(verts[0], verts[4], verts[5]);
+  // Bottom
+  tri(verts[3], verts[2], verts[6]); tri(verts[3], verts[6], verts[7]);
+  // Left
+  tri(verts[0], verts[3], verts[7]); tri(verts[0], verts[7], verts[4]);
+  // Right
+  tri(verts[1], verts[5], verts[6]); tri(verts[1], verts[6], verts[2]);
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  const mat = new THREE.MeshBasicMaterial({
+    color: 0xe03020, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false,
+  });
+  const mesh = new THREE.Mesh(geo, mat);
+  scene.add(mesh);
+  sectorMeshes[name] = mesh;
+}
+
+function buildAllSectors(defaultDepth) {
+  for (let row = 0; row < 3; row++) {
+    for (let col = 0; col < 3; col++) {
+      buildSectorFrustum(SECTOR_NAMES[row * 3 + col], row, col, defaultDepth);
+    }
+  }
+}
+
+// ─── Panel elements (draggable boxes) ────────────────────────────────
+const panels = [];
+const panelColors = [0x1878e0, 0xe03020, 0xe08818, 0x40b080];
+const panelNames = ["DIGITIZE", "ASSEMBLY", "CONTROL", "PERMANENCE"];
+
+const DEPTHS = { near: 0.4, mid: 0.65, far: 1.0 };
+
+function createPanel(name, x, y, z, color, w = 0.2, h = 0.08) {
+  const group = new THREE.Group();
+
+  // Solid face
+  const faceGeo = new THREE.PlaneGeometry(w, h);
+  const faceMat = new THREE.MeshBasicMaterial({
+    color, transparent: true, opacity: 0.6, side: THREE.DoubleSide, depthWrite: false,
+  });
+  const face = new THREE.Mesh(faceGeo, faceMat);
+  group.add(face);
+
+  // Border outline
+  const borderGeo = new THREE.EdgesGeometry(new THREE.BoxGeometry(w, h, 0.002));
+  const borderMat = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.8 });
+  const border = new THREE.LineSegments(borderGeo, borderMat);
+  group.add(border);
+
+  // Label
+  const canvas = document.createElement('canvas');
+  canvas.width = 256; canvas.height = 64;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'bold 28px Inter, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText(name, 128, 40);
+  const tex = new THREE.CanvasTexture(canvas);
+  const labelGeo = new THREE.PlaneGeometry(w * 0.8, h * 0.5);
+  const labelMat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false });
+  const label = new THREE.Mesh(labelGeo, labelMat);
+  label.position.z = 0.003;
+  group.add(label);
+
+  group.position.set(x, y, z);
+  scene.add(group);
+
+  return {
+    name, group, face, faceMat, borderMat, w, h,
+    hovered: false, sector: '', conflicts: [],
+    get worldPos() { return group.position; },
+  };
+}
+
+// Initial positions — overlapping on purpose
+panels.push(createPanel("DIGITIZE",   -0.05, 0.06, -0.65, panelColors[0]));
+panels.push(createPanel("ASSEMBLY",    0.05, 0.02, -0.65, panelColors[1]));
+panels.push(createPanel("CONTROL",     0.0, -0.02, -0.65, panelColors[2]));
+panels.push(createPanel("PERMANENCE", -0.02, -0.06, -0.70, panelColors[3]));
+
+// ─── Cone projection + overlap detection ─────────────────────────────
+function projectToAngular(pos) {
+  const dx = pos.x, dy = pos.y, dz = -pos.z; // camera at origin looking -Z
+  if (dz <= 0) return null;
+  return {
+    az: Math.atan2(dx, dz) / RAD,
+    el: Math.atan2(dy, dz) / RAD,
+    depth: Math.sqrt(dx*dx + dy*dy + dz*dz),
+  };
+}
+
+function getSector(az, el) {
+  const hT = H_FOV / 6, vT = V_FOV / 6;
+  const col = az < -hT ? 0 : az > hT ? 2 : 1;
+  const row = el > vT ? 0 : el < -vT ? 2 : 1;
+  return SECTOR_NAMES[row * 3 + col];
+}
+
+function angularRect(panel) {
+  const p = projectToAngular(panel.worldPos);
+  if (!p) return null;
+  const azExt = Math.atan2(panel.w / 2, -panel.worldPos.z) / RAD;
+  const elExt = Math.atan2(panel.h / 2, -panel.worldPos.z) / RAD;
+  return {
+    ...p, name: panel.name,
+    azMin: p.az - azExt, azMax: p.az + azExt,
+    elMin: p.el - elExt, elMax: p.el + elExt,
+  };
+}
+
+function detectOverlaps() {
+  const rects = panels.map(angularRect).filter(Boolean);
+  const overlaps = [];
+  for (let i = 0; i < rects.length; i++) {
+    for (let j = i + 1; j < rects.length; j++) {
+      const a = rects[i], b = rects[j];
+      if (a.azMin < b.azMax && a.azMax > b.azMin && a.elMin < b.elMax && a.elMax > b.elMin) {
+        overlaps.push([a.name, b.name]);
+      }
+    }
+  }
+  return { rects, overlaps };
+}
+
+// ─── Conflict resolution ─────────────────────────────────────────────
+const SECTOR_POS = {
+  "TOP-LEFT": [-0.66, 0.66], "TOP": [0, 0.66], "TOP-RIGHT": [0.66, 0.66],
+  "LEFT": [-0.66, 0], "CENTER": [0, 0], "RIGHT": [0.66, 0],
+  "BOT-LEFT": [-0.66, -0.66], "BOTTOM": [0, -0.66], "BOT-RIGHT": [0.66, -0.66],
+};
+const ADJACENT = {
+  "TOP-LEFT": ["TOP","LEFT"], "TOP": ["TOP-LEFT","TOP-RIGHT","CENTER"],
+  "TOP-RIGHT": ["TOP","RIGHT"], "LEFT": ["TOP-LEFT","CENTER","BOT-LEFT"],
+  "CENTER": ["TOP","LEFT","RIGHT","BOTTOM"], "RIGHT": ["TOP-RIGHT","CENTER","BOT-RIGHT"],
+  "BOT-LEFT": ["LEFT","BOTTOM"], "BOTTOM": ["BOT-LEFT","CENTER","BOT-RIGHT"],
+  "BOT-RIGHT": ["BOTTOM","RIGHT"],
+};
+
+let resolveActive = false;
+const resolvedTargets = {};
+
+function resolveConflicts() {
+  // Screen-space overlap resolution — project panel rects to 2D angular
+  // space, detect intersections, push apart by exact overlap amount.
+  // Priority: first panel in array keeps position, others get pushed.
+
+  const rects = panels.map(p => {
+    const r = angularRect(p);
+    return r ? { ...r, panel: p, pushX: 0, pushY: 0 } : null;
+  }).filter(Boolean);
+
+  // Iterative push (converges in ~5 passes for 4 elements)
+  for (let pass = 0; pass < 8; pass++) {
+    let anyPush = false;
+    for (let i = 0; i < rects.length; i++) {
+      for (let j = i + 1; j < rects.length; j++) {
+        const a = rects[i], b = rects[j];
+        const gapDeg = 1.0; // minimum angular gap
+
+        const padDeg = 3.0; // padding between panels
+        const overlapX = Math.min(a.azMax, b.azMax) - Math.max(a.azMin, b.azMin) + padDeg;
+        const overlapY = Math.min(a.elMax, b.elMax) - Math.max(a.elMin, b.elMin) + padDeg;
+
+        if (overlapX > 0 && overlapY > 0) {
+          // Push along the axis with smaller overlap (cheaper resolution)
+          if (overlapX < overlapY) {
+            // Push horizontally
+            const push = overlapX * 0.5;
+            const sign = (a.az < b.az) ? -1 : 1;
+            // Higher index = lower priority = gets pushed more
+            b.pushX += -sign * push * 0.7;
+            a.pushX += sign * push * 0.3;
+          } else {
+            // Push vertically
+            const push = overlapY * 0.5;
+            const sign = (a.el < b.el) ? -1 : 1;
+            b.pushY += -sign * push * 0.7;
+            a.pushY += sign * push * 0.3;
+          }
+          anyPush = true;
+        }
+      }
+    }
+
+    // Apply pushes to angular rects for next pass
+    for (const r of rects) {
+      r.az += r.pushX; r.el += r.pushY;
+      r.azMin += r.pushX; r.azMax += r.pushX;
+      r.elMin += r.pushY; r.elMax += r.pushY;
+      r.pushX = 0; r.pushY = 0;
+    }
+
+    if (!anyPush) break;
+  }
+
+  // Convert resolved angular positions back to world positions
+  for (const r of rects) {
+    const depth = -r.panel.worldPos.z;
+    const x = Math.tan(r.az * RAD) * depth;
+    const y = Math.tan(r.el * RAD) * depth;
+    resolvedTargets[r.panel.name] = new THREE.Vector3(x, y, r.panel.worldPos.z);
+    r.panel.sector = getSector(r.az, r.el);
+  }
+}
+
+// ─── Overlap volume meshes ───────────────────────────────────────
+let overlapMeshes = [];
+const overlapMat = new THREE.MeshBasicMaterial({
+  color: 0xff2020, transparent: true, opacity: 0.12, side: THREE.DoubleSide, depthWrite: false,
+});
+
+function buildOverlapVolume(panelA, panelB) {
+  // Compute angular rect intersection
+  const rA = angularRect(panelA), rB = angularRect(panelB);
+  if (!rA || !rB) return null;
+
+  const azMin = Math.max(rA.azMin, rB.azMin);
+  const azMax = Math.min(rA.azMax, rB.azMax);
+  const elMin = Math.max(rA.elMin, rB.elMin);
+  const elMax = Math.min(rA.elMax, rB.elMax);
+
+  if (azMin >= azMax || elMin >= elMax) return null; // no overlap
+
+  // Build frustum for the overlapping angular region
+  const tanAzMin = Math.tan(azMin * RAD), tanAzMax = Math.tan(azMax * RAD);
+  const tanElMin = Math.tan(elMin * RAD), tanElMax = Math.tan(elMax * RAD);
+  const nearD = NEAR_PLANE;
+  const farD = Math.max(-panelA.worldPos.z, -panelB.worldPos.z);
+
+  const verts = [];
+  for (const d of [nearD, farD]) {
+    verts.push(
+      new THREE.Vector3(tanAzMin * d, tanElMax * d, -d),
+      new THREE.Vector3(tanAzMax * d, tanElMax * d, -d),
+      new THREE.Vector3(tanAzMax * d, tanElMin * d, -d),
+      new THREE.Vector3(tanAzMin * d, tanElMin * d, -d),
+    );
+  }
+
+  const positions = [];
+  function tri(a, b, c) { positions.push(a.x,a.y,a.z, b.x,b.y,b.z, c.x,c.y,c.z); }
+  tri(verts[0], verts[1], verts[2]); tri(verts[0], verts[2], verts[3]);
+  tri(verts[4], verts[6], verts[5]); tri(verts[4], verts[7], verts[6]);
+  tri(verts[0], verts[5], verts[1]); tri(verts[0], verts[4], verts[5]);
+  tri(verts[3], verts[2], verts[6]); tri(verts[3], verts[6], verts[7]);
+  tri(verts[0], verts[3], verts[7]); tri(verts[0], verts[7], verts[4]);
+  tri(verts[1], verts[5], verts[6]); tri(verts[1], verts[6], verts[2]);
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  return new THREE.Mesh(geo, overlapMat.clone());
+}
+
+function updateOverlapVolumes() {
+  for (const m of overlapMeshes) { scene.remove(m); m.geometry.dispose(); }
+  overlapMeshes = [];
+
+  const { overlaps } = detectOverlaps();
+  for (const [aName, bName] of overlaps) {
+    const a = panels.find(p => p.name === aName);
+    const b = panels.find(p => p.name === bName);
+    if (a && b) {
+      const mesh = buildOverlapVolume(a, b);
+      if (mesh) {
+        scene.add(mesh);
+        overlapMeshes.push(mesh);
+      }
+    }
+  }
+}
+
+// ─── Panel cone highlight mesh ───────────────────────────────────
+let panelConeMesh = null;
+const panelConeMat = new THREE.MeshBasicMaterial({
+  color: 0xe03020, transparent: true, opacity: 0.06, side: THREE.DoubleSide, depthWrite: false,
+});
+
+function buildPanelCone(nearCorners, farCorners) {
+  if (panelConeMesh) { scene.remove(panelConeMesh); panelConeMesh.geometry.dispose(); }
+
+  const n = nearCorners, f = farCorners;
+  const positions = [];
+  function tri(a, b, c) { positions.push(a.x,a.y,a.z, b.x,b.y,b.z, c.x,c.y,c.z); }
+
+  // Near face
+  tri(n[0], n[1], n[2]); tri(n[0], n[2], n[3]);
+  // Far face (panel surface)
+  tri(f[0], f[2], f[1]); tri(f[0], f[3], f[2]);
+  // Top
+  tri(n[0], f[1], n[1]); tri(n[0], f[0], f[1]);
+  // Bottom
+  tri(n[3], n[2], f[2]); tri(n[3], f[2], f[3]);
+  // Left
+  tri(n[0], n[3], f[3]); tri(n[0], f[3], f[0]);
+  // Right
+  tri(n[1], f[1], f[2]); tri(n[1], f[2], n[2]);
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  panelConeMesh = new THREE.Mesh(geo, panelConeMat);
+  scene.add(panelConeMesh);
+}
+
+// ─── Raycaster for hover ─────────────────────────────────────────────
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+let hoveredPanel = null;
+
+renderer.domElement.addEventListener('mousemove', (e) => {
+  mouse.x = (e.clientX / innerWidth) * 2 - 1;
+  mouse.y = -(e.clientY / innerHeight) * 2 + 1;
+});
+
+// ─── GUI ─────────────────────────────────────────────────────────────
+const params = {
+  coneDepth: 0.65,
+  resolve: () => { resolveActive = true; resolveConflicts(); },
+  reset: () => {
+    resolveActive = false;
+    panels[0].group.position.set(-0.05, 0.06, -0.65);
+    panels[1].group.position.set(0.05, 0.02, -0.65);
+    panels[2].group.position.set(0.0, -0.02, -0.65);
+    panels[3].group.position.set(-0.02, -0.06, -0.70);
+    for (const k in resolvedTargets) resolvedTargets[k] = null;
+  },
+};
+const gui = new GUI({ title: 'View Cone' });
+
+const camFolder = gui.addFolder('Scene Camera (Spectacles)');
+camFolder.add(cam, 'near', 0.01, 0.3, 0.01).name('Near Plane').onChange(v => {
+  NEAR_PLANE = v;
+  buildConeOutlines(params.coneDepth);
+  updateSceneCamera();
+});
+camFolder.add(cam, 'hFov', 20, 120, 1).name('H-FOV°').onChange(v => {
+  H_FOV = v;
+  buildConeOutlines(params.coneDepth);
+  updateSceneCamera();
+});
+camFolder.add(cam, 'vFov', 15, 90, 1).name('V-FOV°').onChange(v => {
+  V_FOV = v;
+  buildConeOutlines(params.coneDepth);
+  updateSceneCamera();
+});
+gui.add(params, 'coneDepth', 0.3, 1.5, 0.05).name('Far Plane').onChange(v => {
+  buildConeOutlines(v);
+});
+gui.add(params, 'resolve').name('Resolve Overlaps');
+gui.add(params, 'reset').name('Reset Positions');
+
+// Orbit camera controls
+const viewFolder = gui.addFolder('View Camera');
+const viewParams = {
+  ortho: false,
+  fov: camera.fov,
+};
+viewFolder.add(viewParams, 'ortho').name('Orthographic').onChange(v => {
+  if (v) {
+    const d = camera.position.length();
+    const aspect = innerWidth / innerHeight;
+    const h = d * Math.tan(camera.fov / 2 * RAD);
+    orthoCamera = new THREE.OrthographicCamera(-h * aspect, h * aspect, h, -h, 0.01, 100);
+    orthoCamera.position.copy(camera.position);
+    orthoCamera.quaternion.copy(camera.quaternion);
+    controls.object = orthoCamera;
+    useOrtho = true;
+  } else {
+    controls.object = camera;
+    useOrtho = false;
+  }
+});
+viewFolder.add(viewParams, 'fov', 20, 120, 1).name('View FOV').onChange(v => {
+  camera.fov = v;
+  camera.updateProjectionMatrix();
+});
+
+// Initial build
+buildConeOutlines(params.coneDepth);
+buildAllSectors(params.coneDepth);
+
+// ─── Draw connection lines from camera to panels ─────────────────────
+const connectionLines = [];
+for (let i = 0; i < 4; i++) {
+  const geo = new THREE.BufferGeometry();
+  const mat = new THREE.LineBasicMaterial({ color: panelColors[i], transparent: true, opacity: 0.3 });
+  const line = new THREE.Line(geo, mat);
+  scene.add(line);
+  connectionLines.push(line);
+}
+
+// ─── Animate ─────────────────────────────────────────────────────────
+function animate() {
+  requestAnimationFrame(animate);
+
+  // Hover detection
+  raycaster.setFromCamera(mouse, camera);
+  const faces = panels.map(p => p.face);
+  const hits = raycaster.intersectObjects(faces);
+  const prevHovered = hoveredPanel;
+  hoveredPanel = null;
+  if (hits.length > 0) {
+    for (const panel of panels) {
+      if (panel.face === hits[0].object) { hoveredPanel = panel; break; }
+    }
+  }
+
+  // Update panel visuals
+  for (const panel of panels) {
+    const isHov = panel === hoveredPanel;
+    panel.borderMat.opacity = isHov ? 1.0 : 0.4;
+    panel.borderMat.color.set(isHov ? 0xffffff : 0x888888);
+    panel.faceMat.opacity = isHov ? 0.8 : 0.5;
+  }
+
+  // Highlight: exact angular footprint of hovered panel as frustum slice
+  if (panelConeMesh) { panelConeMesh.visible = false; }
+  if (hoveredPanel) {
+    const pos = hoveredPanel.worldPos;
+    const hw = hoveredPanel.w / 2, hh = hoveredPanel.h / 2;
+    const panelDepth = -pos.z;
+    if (panelDepth > 0.05) {
+      // Panel corners in world space
+      const corners = [
+        new THREE.Vector3(pos.x - hw, pos.y + hh, pos.z),
+        new THREE.Vector3(pos.x + hw, pos.y + hh, pos.z),
+        new THREE.Vector3(pos.x + hw, pos.y - hh, pos.z),
+        new THREE.Vector3(pos.x - hw, pos.y - hh, pos.z),
+      ];
+      // Project corners as rays from origin, find near-plane intersections
+      const nearCorners = corners.map(c => {
+        const dir = c.clone().normalize();
+        return dir.multiplyScalar(NEAR_PLANE / (-dir.z || 0.001) * -1);
+      });
+      // Build frustum: 4 near corners + 4 panel corners
+      buildPanelCone(nearCorners, corners);
+      panelConeMesh.visible = true;
+    }
+  }
+
+  // Overlap detection
+  const { rects, overlaps } = detectOverlaps();
+  for (const panel of panels) panel.conflicts = [];
+  for (const [a, b] of overlaps) {
+    const pa = panels.find(p => p.name === a);
+    const pb = panels.find(p => p.name === b);
+    if (pa) pa.conflicts.push(b);
+    if (pb) pb.conflicts.push(a);
+  }
+
+  // Red border on conflicting panels
+  for (const panel of panels) {
+    if (panel.conflicts.length > 0 && panel !== hoveredPanel) {
+      panel.borderMat.color.set(0xe03020);
+      panel.borderMat.opacity = 0.9;
+    }
+  }
+
+  // Update overlap frustum volumes
+  updateOverlapVolumes();
+
+  // Smooth move toward resolved targets
+  if (resolveActive) {
+    for (const panel of panels) {
+      const target = resolvedTargets[panel.name];
+      if (target) {
+        panel.group.position.lerp(target, 0.05);
+      }
+    }
+  }
+
+  // Update connection lines
+  for (let i = 0; i < panels.length; i++) {
+    const pts = [new THREE.Vector3(0,0,0), panels[i].worldPos.clone()];
+    connectionLines[i].geometry.dispose();
+    connectionLines[i].geometry = new THREE.BufferGeometry().setFromPoints(pts);
+  }
+
+  // Stats
+  const sectorList = panels.map(p => {
+    const proj = projectToAngular(p.worldPos);
+    return proj ? `${p.name}: ${getSector(proj.az, proj.el)}` : `${p.name}: ?`;
+  });
+  document.getElementById('stats').innerHTML = sectorList.join('<br>');
+  document.getElementById('overlap-log').innerHTML = overlaps.length > 0
+    ? '<span style="color:var(--red)">OVERLAPS:</span><br>' + overlaps.map(([a,b]) => `${a} x ${b}`).join('<br>')
+    : '<span style="color:#4a4">No overlaps</span>';
+
+  controls.update();
+  gnomon.update();
+  const activeCam = useOrtho && orthoCamera ? orthoCamera : camera;
+  if (useOrtho && orthoCamera) {
+    orthoCamera.position.copy(controls.object.position);
+    orthoCamera.quaternion.copy(controls.object.quaternion);
+  }
+  renderer.render(scene, activeCam);
+
+  // Inset preview: what the scene camera actually sees
+  // Hide debug visuals (cone outlines, overlap volumes, connection lines)
+  coneGroup.visible = false;
+  if (panelConeMesh) panelConeMesh.visible = false;
+  for (const m of overlapMeshes) m.visible = false;
+  for (const l of connectionLines) l.visible = false;
+
+  previewRenderer.render(scene, sceneCamera);
+
+  // Restore
+  coneGroup.visible = true;
+  for (const l of connectionLines) l.visible = true;
+}
+animate();
+</script>
+</body>
+</html>
