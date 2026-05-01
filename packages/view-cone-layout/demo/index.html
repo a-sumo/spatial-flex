@@ -434,6 +434,19 @@ function createPanel({
       this.text = newText;
       this.shrinkwrap();
     },
+
+    /** Force the frame to an explicit world size (cm). Doesn't touch the label;
+     *  text stays at its measured size and may overflow visually. */
+    setFixedFrameSize(wCm, hCm) {
+      const w = wCm * 0.01;
+      const h = hCm * 0.01;
+      this.face.geometry.dispose();
+      this.face.geometry = new THREE.PlaneGeometry(w, h);
+      this.border.geometry.dispose();
+      this.border.geometry = new THREE.EdgesGeometry(new THREE.BoxGeometry(w, h, 0.002));
+      this.w = w;
+      this.h = h;
+    },
   };
 
   panel.shrinkwrap();
@@ -765,6 +778,16 @@ gui.add(params, 'coneDepth', 0.3, 1.5, 0.05).name('Far Plane').onChange(v => {
 });
 gui.add(params, 'resolve').name('Resolve Overlaps');
 gui.add(params, 'reset').name('Reset Positions');
+
+const DEFAULT_FRAME_SIZE_CM = { w: 20, h: 8 };
+gui.add({
+  shrinkwrap: () => { for (const p of panels) p.shrinkwrap(); },
+}, 'shrinkwrap').name('Shrinkwrap to Text');
+gui.add({
+  resetFrames: () => {
+    for (const p of panels) p.setFixedFrameSize(DEFAULT_FRAME_SIZE_CM.w, DEFAULT_FRAME_SIZE_CM.h);
+  },
+}, 'resetFrames').name('Reset Frame Sizes');
 
 // ─── Per-panel text size + auto-fit readability ──────────────────────
 const textFolder = gui.addFolder('Panel Text Size');
