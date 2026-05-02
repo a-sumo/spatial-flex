@@ -8,11 +8,11 @@ When you place panels in 3D space in front of the user, two panels at different 
 
 ## Demo
 
-https://github.com/a-sumo/spatial-flex/raw/main/packages/view-cone-layout/media/demo.mp4
+| Before | After |
+| --- | --- |
+| ![before](media/before.png) | ![after](media/after.png) |
 
-<video src="media/demo.mp4" controls width="100%" muted autoplay loop playsinline></video>
-
-Four panels of varying text length sit at depths from 40 cm to 1.4 m. The inset bottom-right shows what the wearer actually sees, with the panels overlapping. Hitting **Run Layout Pass** triggers the canonical view-aware sequence: scale each panel's text toward the readability target, refit each frame around the new text, then push panels apart in angular space until none overlap from the wearer's point of view.
+Four panels of varying text length sit at depths from 40 cm to 1.4 m. On the **left**, the inset bottom-right shows what the wearer actually sees: panels stacked into a single overlapping clump. On the **right**, after one **Run Layout Pass**, each panel's text has scaled toward the readability target, the frames have shrinkwrapped around the new text, and the panels have separated in angular space until no two overlap from the wearer's point of view.
 
 To run the demo locally:
 
