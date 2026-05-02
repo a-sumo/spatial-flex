@@ -86,33 +86,45 @@ const { scene, camera, renderer, controls, grid, floor, setBackground } = create
   shadows: false, maxPolarAngle: Math.PI * 0.9,
 });
 
-// Soft, airy gradient backdrop with diffuse color blooms (egyptian-blue + warm orange).
-// Rendered as scene.background so it shows behind the geometry.
+// Light, airy backdrop with heavy Gaussian blur — drei-style soft environment.
+// A small painted canvas, blurred hard, rendered as scene.background. The
+// geometry sits in front of an out-of-focus pastel field.
 function makeBackdrop() {
-  const c = document.createElement('canvas');
-  c.width = 1024; c.height = 1024;
-  const ctx = c.getContext('2d');
-  // Base
-  const base = ctx.createLinearGradient(0, 0, 0, 1024);
-  base.addColorStop(0, '#0c1224');
-  base.addColorStop(1, '#06080f');
-  ctx.fillStyle = base;
-  ctx.fillRect(0, 0, 1024, 1024);
-  // Color blooms (additive, soft)
-  ctx.globalCompositeOperation = 'lighter';
-  function bloom(x, y, r, hex, alpha) {
+  const SIZE = 384;
+  const src = document.createElement('canvas');
+  src.width = SIZE; src.height = SIZE;
+  const ctx = src.getContext('2d');
+
+  // Warm beige base.
+  ctx.fillStyle = '#ede5d6';
+  ctx.fillRect(0, 0, SIZE, SIZE);
+
+  // Soft color washes (low alpha, additive).
+  function bloom(xPct, yPct, rPct, hex, alpha) {
+    const x = xPct / 100 * SIZE, y = yPct / 100 * SIZE, r = rPct / 100 * SIZE;
     const g = ctx.createRadialGradient(x, y, 0, x, y, r);
     g.addColorStop(0, hex + Math.floor(alpha * 255).toString(16).padStart(2, '0'));
     g.addColorStop(1, hex + '00');
     ctx.fillStyle = g;
-    ctx.fillRect(0, 0, 1024, 1024);
+    ctx.fillRect(0, 0, SIZE, SIZE);
   }
-  bloom(220, 720, 480, '#e85020', 0.22);   // warm bottom-left
-  bloom(820, 250, 520, '#0e34a0', 0.30);   // cool top-right
-  bloom(550, 550, 320, '#5f5980', 0.18);   // soft mid grape
-  bloom(120, 180, 280, '#dfdfdf', 0.06);   // gentle highlight
-  const tex = new THREE.CanvasTexture(c);
+  bloom(22, 72, 70, '#1878e0', 0.16);    // soft sky blue, lower-left
+  bloom(78, 22, 70, '#e8a060', 0.20);    // warm peach, upper-right
+  bloom(50, 50, 55, '#f5e8d4', 0.30);    // creamy center wash
+  bloom(20, 25, 40, '#e8c8a0', 0.16);    // gentle warm tint, upper-left
+
+  // Heavy Gaussian blur pass — ~60px on a 384 canvas equals very out-of-focus.
+  const dst = document.createElement('canvas');
+  dst.width = SIZE; dst.height = SIZE;
+  const dctx = dst.getContext('2d');
+  dctx.filter = 'blur(60px)';
+  dctx.drawImage(src, 0, 0);
+
+  const tex = new THREE.CanvasTexture(dst);
   tex.colorSpace = THREE.SRGBColorSpace;
+  tex.minFilter = THREE.LinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  tex.generateMipmaps = false;
   return tex;
 }
 scene.background = makeBackdrop();
@@ -174,7 +186,7 @@ function buildDepthRuler(maxDepth) {
 
   const baseY = -0.12;
   const spineColor = 0x5f5980;
-  const tickColor = 0xdfdfdf;
+  const tickColor = 0x343434;
 
   // Spine
   const spineGeo = new THREE.BufferGeometry().setFromPoints([
@@ -198,7 +210,7 @@ function buildDepthRuler(maxDepth) {
     const canvas = document.createElement('canvas');
     canvas.width = 128; canvas.height = 32;
     const ctx = canvas.getContext('2d');
-    ctx.fillStyle = isMajor ? '#dfdfdf' : '#9994a8';
+    ctx.fillStyle = isMajor ? '#222222' : '#666666';
     ctx.font = `${isMajor ? 'bold ' : ''}20px Inter, sans-serif`;
     ctx.textAlign = 'center';
     ctx.fillText(`${cm} cm`, 64, 22);
@@ -358,8 +370,10 @@ function buildAllSectors(defaultDepth) {
 
 // ─── Panel elements (draggable boxes) ────────────────────────────────
 const panels = [];
-// Palette: alabaster-grey, twilight-indigo, dusty-grape, egyptian-blue
-const panelColors = [0xdfdfdf, 0x2f3061, 0x5f5980, 0x0e34a0];
+// Palette tuned for the light beige backdrop: graphite, twilight-indigo,
+// dusty-grape, egyptian-blue. All four read with white text and contrast
+// against the warm cream background.
+const panelColors = [0x343434, 0x2f3061, 0x5f5980, 0x0e34a0];
 const panelNames = ["PANEL A", "PANEL B", "PANEL C", "PANEL D"];
 
 const DEPTHS = { near: 0.4, mid: 0.65, far: 1.0 };
