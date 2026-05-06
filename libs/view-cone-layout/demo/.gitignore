@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.vite/
+
+# Env files carry the Supabase anon key. .env.example is committed for reference.
+.env
+.env.local
+.env.*.local

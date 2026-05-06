@@ -1,0 +1,53 @@
+- !<AssetImportMetadata/8480de53-8ee6-4fea-b433-0532a445e38a>
+  ImportedAssetIds:
+    TypeScriptAsset: !<reference> 6a3fb9e3-3ac4-4e9a-abfb-bd58815fe375
+  ImporterName: TypeScriptAssetImporter
+  PrimaryAsset: !<reference> 6a3fb9e3-3ac4-4e9a-abfb-bd58815fe375
+  PackageType: NotAPackage
+  LegacyPackagePolicy: ~
+  ExtraData:
+    {}
+  AssetDataMap:
+    TypeScriptAsset: !<own> d3a0f9d7-5413-436e-b2aa-d09d278ddb5f
+  DependentFiles:
+    []
+  ImporterSettings: !<AssetImporterSettings>
+    {}
+  CompressionSettings: !<own> 00000000-0000-0000-0000-000000000000
+- !<TypeScriptAssetData/d3a0f9d7-5413-436e-b2aa-d09d278ddb5f>
+  SvgIcon: ""
+  SetupScript:
+    code: ""
+  Description: ""
+  VersionMajor: 0
+  VersionMinor: 0
+  VersionPatch: 0
+  ComponentUid: ffcfb917-74ed-4fac-a4c9-acae1409e467
+  ExportUid: 00000000-0000-0000-0000-000000000000
+  PackagePolicy: CanBeUnpacked
+  ScriptInputsHidden:
+    defaultFont: false
+    root: false
+    runOnStart: false
+    verbose: false
+  ScriptTypesHidden:
+    {}
+  ReadMe: !<reference> 00000000-0000-0000-0000-000000000000
+  DeclarationFile: !<reference> 00000000-0000-0000-0000-000000000000
+  Tags:
+    []
+  Attachments:
+    []
+  DefaultScriptInputs:
+    - root: !<reference.SceneObject> 00000000-0000-0000-0000-000000000000
+      defaultFont: !<reference.Font> 00000000-0000-0000-0000-000000000000
+      runOnStart: true
+      verbose: true
+  ScriptTypes:
+    -
+      {}
+  InputLines:
+    - "// @input SceneObject root {\"hint\":\"Walk this object's descendants. Empty = self.\"}"
+    - '// @input Asset.Font defaultFont {"hint":"If set, assign this Font to any Text that has none. Required for size changes to render — the default fallback renderer ignores text.size."}'
+    - '// @input bool runOnStart = true {"hint":"Run on start in addition to the remote trigger."}'
+    - // @input bool verbose = true

@@ -1,0 +1,74 @@
+- !<AssetImportMetadata/d8a95c81-fa55-4e52-8d27-e0a031030f14>
+  ImportedAssetIds:
+    TypeScriptAsset: !<reference> ef42882d-7dd2-43ad-ba5d-b952b5b0e313
+  ImporterName: TypeScriptAssetImporter
+  PrimaryAsset: !<reference> ef42882d-7dd2-43ad-ba5d-b952b5b0e313
+  PackageType: NotAPackage
+  LegacyPackagePolicy: ~
+  ExtraData:
+    {}
+  AssetDataMap:
+    TypeScriptAsset: !<own> 9800aed2-9147-438c-b5d4-d09199a39790
+  DependentFiles:
+    []
+  ImporterSettings: !<AssetImporterSettings>
+    {}
+  CompressionSettings: !<own> 00000000-0000-0000-0000-000000000000
+- !<TypeScriptAssetData/9800aed2-9147-438c-b5d4-d09199a39790>
+  SvgIcon: ""
+  SetupScript:
+    code: ""
+  Description: ""
+  VersionMajor: 0
+  VersionMinor: 0
+  VersionPatch: 0
+  ComponentUid: 5891ee9a-d17d-4223-be0a-f90bb3c8b453
+  ExportUid: 00000000-0000-0000-0000-000000000000
+  PackagePolicy: CanBeUnpacked
+  ScriptInputsHidden:
+    actionName: false
+    allowDepthPush: false
+    cameraObj: false
+    depthStep: false
+    hFov: false
+    maxPasses: false
+    padding: false
+    resolveInterval: false
+    resolveOnInit: false
+    smoothing: false
+    vFov: false
+  ScriptTypesHidden:
+    {}
+  ReadMe: !<reference> 00000000-0000-0000-0000-000000000000
+  DeclarationFile: !<reference> 00000000-0000-0000-0000-000000000000
+  Tags:
+    []
+  Attachments:
+    []
+  DefaultScriptInputs:
+    - cameraObj: !<reference.SceneObject> 00000000-0000-0000-0000-000000000000
+      hFov: !<float> 50.000000
+      vFov: !<float> 30.000000
+      padding: !<float> 2.000000
+      smoothing: !<float> 4.000000
+      resolveInterval: !<float> 3.000000
+      maxPasses: !<float> 8.000000
+      allowDepthPush: true
+      depthStep: !<float> 10.000000
+      resolveOnInit: true
+      actionName: resolve
+  ScriptTypes:
+    -
+      {}
+  InputLines:
+    - '// @input SceneObject cameraObj {"hint":"Camera SceneObject (auto-discovers if empty)"}'
+    - '// @input float hFov = 57.3 {"hint":"Spectacles horizontal FOV (degrees) — empirical default"}'
+    - '// @input float vFov = 57.3 {"hint":"Spectacles vertical FOV (degrees) — empirical default"}'
+    - '// @input float padding = 2 {"hint":"Angular padding between elements (degrees)"}'
+    - '// @input float smoothing = 4 {"hint":"Position smoothing speed"}'
+    - '// @input float resolveInterval = 3 {"hint":"Resolve every N frames"}'
+    - '// @input float maxPasses = 8 {"hint":"Max resolution passes per cycle"}'
+    - '// @input bool allowDepthPush = true {"hint":"Allow depth push to resolve overlaps"}'
+    - '// @input float depthStep = 10 {"hint":"Depth push step (cm)"}'
+    - '// @input bool resolveOnInit = true {"hint":"Run a resolve pass on init (otherwise wait for refresh())."}'
+    - "// @input string actionName = \"resolve\" {\"hint\":\"Remote-trigger name. Default 'resolve' / 'reset'. Override per-instance for multiple ViewConeLayouts in the same scene (e.g. 'resolve-uikit').\"}"

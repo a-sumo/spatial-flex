@@ -1,0 +1,74 @@
+- !<AssetImportMetadata/c402280d-aa73-4e23-afd2-f0354450126f>
+  ImportedAssetIds:
+    TypeScriptAsset: !<reference> 90c0cb70-2322-4a84-b27c-2e77dd57574e
+  ImporterName: TypeScriptAssetImporter
+  PrimaryAsset: !<reference> 90c0cb70-2322-4a84-b27c-2e77dd57574e
+  PackageType: NotAPackage
+  LegacyPackagePolicy: ~
+  ExtraData:
+    {}
+  AssetDataMap:
+    TypeScriptAsset: !<own> 5ced7e76-b04f-4890-a56b-a82a603b277a
+  DependentFiles:
+    []
+  ImporterSettings: !<AssetImporterSettings>
+    {}
+  CompressionSettings: !<own> 00000000-0000-0000-0000-000000000000
+- !<TypeScriptAssetData/5ced7e76-b04f-4890-a56b-a82a603b277a>
+  SvgIcon: ""
+  SetupScript:
+    code: ""
+  Description: ""
+  VersionMajor: 0
+  VersionMinor: 0
+  VersionPatch: 0
+  ComponentUid: 302c85db-e26f-4b52-b918-6106a07b05f7
+  ExportUid: 00000000-0000-0000-0000-000000000000
+  PackagePolicy: CanBeUnpacked
+  ScriptInputsHidden:
+    autoStart: false
+    channelName: false
+    compositeTexture: false
+    continuous: false
+    displayAspect: false
+    enableDebugLogs: false
+    fps: false
+    lensTexture: false
+    mode: false
+    quality: false
+    snapCloudRequirements: false
+  ScriptTypesHidden:
+    {}
+  ReadMe: !<reference> 00000000-0000-0000-0000-000000000000
+  DeclarationFile: !<reference> 00000000-0000-0000-0000-000000000000
+  Tags:
+    []
+  Attachments:
+    []
+  DefaultScriptInputs:
+    - snapCloudRequirements: !<MappingBased.AssignableType> 00000000-0000-0000-0000-000000000000
+      channelName: viewcone-live-stream
+      mode: composite
+      compositeTexture: !<reference.Texture> 00000000-0000-0000-0000-000000000000
+      lensTexture: !<reference.Texture> 00000000-0000-0000-0000-000000000000
+      fps: !<float> 15.000000
+      continuous: false
+      displayAspect: !<float> 1.000000
+      quality: !<float> 60.000000
+      autoStart: true
+      enableDebugLogs: true
+  ScriptTypes:
+    -
+      {}
+  InputLines:
+    - '// @input AssignableType snapCloudRequirements {"hint":"SnapCloudRequirements component holding the SupabaseProject"}'
+    - '// @input string channelName = "viewcone-live-stream" {"hint":"Realtime channel name. Paste the same value in the browser viewer."}'
+    - '// @input string mode = "composite" {"hint":"Which texture to capture: composite (camera + lens) or lens (lens-only).", "widget":"combobox", "values":[{"label":"composite", "value":"composite"}, {"label":"lens", "value":"lens"}]}'
+    - '// @input Asset.Texture compositeTexture {"hint":"Composite render output (camera + lens). Used when mode=composite."}'
+    - '// @input Asset.Texture lensTexture {"hint":"Lens-only render output. Used when mode=lens."}'
+    - '// @input float fps = 2 {"hint":"Streaming fps when continuous=true. Snapshot mode ignores this.", "widget":"slider", "min":1, "max":30, "step":1}'
+    - '// @input bool continuous {"hint":"Stream JPEGs continuously instead of on-demand. Default off (snapshot-only) to keep Snap Cloud quota near zero."}'
+    - '// @input float displayAspect = 0.6667 {"hint":"Override simulator aspect (W/H). Spectacles per-eye native = 2/3 = 0.6667. Web viewer crops centre-out to this ratio."}'
+    - '// @input float quality = 50 {"hint":"JPEG quality. <=70 uses IntermediateQuality, >70 uses HighQuality.", "widget":"slider", "min":1, "max":100, "step":1}'
+    - '// @input bool autoStart = true {"hint":"When continuous=true, start streaming as soon as the channel is subscribed."}'
+    - // @input bool enableDebugLogs = true

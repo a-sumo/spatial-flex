@@ -1,0 +1,65 @@
+- !<AssetImportMetadata/56d9f9df-ea8e-473e-b74b-585ce2772988>
+  ImportedAssetIds:
+    TypeScriptAsset: !<reference> 38425aec-41e7-4ad5-bdcb-c52d90067e1a
+  ImporterName: TypeScriptAssetImporter
+  PrimaryAsset: !<reference> 38425aec-41e7-4ad5-bdcb-c52d90067e1a
+  PackageType: NotAPackage
+  LegacyPackagePolicy: ~
+  ExtraData:
+    {}
+  AssetDataMap:
+    TypeScriptAsset: !<own> dc2ace02-1c4f-4f1d-a1a1-2b2988c0c8f2
+  DependentFiles:
+    []
+  ImporterSettings: !<AssetImporterSettings>
+    {}
+  CompressionSettings: !<own> 00000000-0000-0000-0000-000000000000
+- !<TypeScriptAssetData/dc2ace02-1c4f-4f1d-a1a1-2b2988c0c8f2>
+  SvgIcon: ""
+  SetupScript:
+    code: ""
+  Description: ""
+  VersionMajor: 0
+  VersionMinor: 0
+  VersionPatch: 0
+  ComponentUid: 592425fe-d9d5-486b-9bb6-639e1cb0e465
+  ExportUid: 00000000-0000-0000-0000-000000000000
+  PackagePolicy: CanBeUnpacked
+  ScriptInputsHidden:
+    calibrationFactor: false
+    cameraObj: false
+    continuous: false
+    passes: false
+    ppd: false
+    root: false
+    targetPx: false
+    verbose: false
+  ScriptTypesHidden:
+    {}
+  ReadMe: !<reference> 00000000-0000-0000-0000-000000000000
+  DeclarationFile: !<reference> 00000000-0000-0000-0000-000000000000
+  Tags:
+    []
+  Attachments:
+    []
+  DefaultScriptInputs:
+    - root: !<reference.SceneObject> 00000000-0000-0000-0000-000000000000
+      cameraObj: !<reference.SceneObject> 00000000-0000-0000-0000-000000000000
+      ppd: 44.700001
+      targetPx: !<float> 24.000000
+      calibrationFactor: !<float> 0.000000
+      passes: !<float> 2.000000
+      continuous: false
+      verbose: false
+  ScriptTypes:
+    -
+      {}
+  InputLines:
+    - "// @input SceneObject root {\"hint\":\"Walk this object's descendants. Empty = self.\"}"
+    - '// @input SceneObject cameraObj {"hint":"Camera SceneObject. Required for distance computation."}'
+    - '// @input float ppd = 44.7 {"hint":"Display pixels per degree (PPD). Spectacles per-eye ≈ 44.7 (calibrated)."}'
+    - '// @input float targetPx = 24 {"hint":"Target on-display pixel height for text glyphs. 24 = readability default for AR."}'
+    - '// @input float calibrationFactor = 0.07 {"hint":"Empirical world-cm cap-height per text.size unit (k). text.worldSpaceRect is the LAYOUT BOX, not rendered glyphs — so we predict cap height as text.size × k. Calibrate once: render at size=100, measure cm, k = capH/100. Default 0.07 ≈ typical LS font."}'
+    - '// @input float passes = 2 {"hint":"Correction passes. Linear math converges in 1; non-linear shrink overflow benefits from 2-3.", "widget":"slider", "min":1, "max":5, "step":1}'
+    - '// @input bool continuous {"hint":"Re-fit on every UpdateEvent. Off: only on start + the text-autofit remote trigger."}'
+    - // @input bool verbose

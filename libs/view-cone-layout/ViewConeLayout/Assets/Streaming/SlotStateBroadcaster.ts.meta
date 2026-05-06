@@ -1,0 +1,62 @@
+- !<AssetImportMetadata/1652561b-db62-4148-9d85-93a509d63d3d>
+  ImportedAssetIds:
+    TypeScriptAsset: !<reference> 910c96c5-ed55-4244-893c-6ed7801a376b
+  ImporterName: TypeScriptAssetImporter
+  PrimaryAsset: !<reference> 910c96c5-ed55-4244-893c-6ed7801a376b
+  PackageType: NotAPackage
+  LegacyPackagePolicy: ~
+  ExtraData:
+    {}
+  AssetDataMap:
+    TypeScriptAsset: !<own> 3c74eefb-52aa-4229-91c9-b4f7eb095be9
+  DependentFiles:
+    []
+  ImporterSettings: !<AssetImporterSettings>
+    {}
+  CompressionSettings: !<own> 00000000-0000-0000-0000-000000000000
+- !<TypeScriptAssetData/3c74eefb-52aa-4229-91c9-b4f7eb095be9>
+  SvgIcon: ""
+  SetupScript:
+    code: ""
+  Description: ""
+  VersionMajor: 0
+  VersionMinor: 0
+  VersionPatch: 0
+  ComponentUid: 86790580-2bfe-4a4e-bf72-96f12e2c7fac
+  ExportUid: 00000000-0000-0000-0000-000000000000
+  PackagePolicy: CanBeUnpacked
+  ScriptInputsHidden:
+    acceptUpdates: false
+    cameraObj: false
+    channelName: false
+    enableDebugLogs: false
+    fps: false
+    slotsRoot: false
+    snapCloudRequirements: false
+  ScriptTypesHidden:
+    {}
+  ReadMe: !<reference> 00000000-0000-0000-0000-000000000000
+  DeclarationFile: !<reference> 00000000-0000-0000-0000-000000000000
+  Tags:
+    []
+  Attachments:
+    []
+  DefaultScriptInputs:
+    - snapCloudRequirements: !<MappingBased.AssignableType> 00000000-0000-0000-0000-000000000000
+      channelName: viewcone-live-stream
+      slotsRoot: !<reference.SceneObject> 00000000-0000-0000-0000-000000000000
+      cameraObj: !<reference.SceneObject> 00000000-0000-0000-0000-000000000000
+      fps: !<float> 5.000000
+      acceptUpdates: true
+      enableDebugLogs: true
+  ScriptTypes:
+    -
+      {}
+  InputLines:
+    - '// @input AssignableType snapCloudRequirements {"hint":"SnapCloudRequirements component holding the SupabaseProject."}'
+    - '// @input string channelName = "viewcone-live-stream" {"hint":"Realtime channel name. Match the streamer + viewer."}'
+    - '// @input SceneObject slotsRoot {"hint":"Root SceneObject whose direct children carry ConeSlot components."}'
+    - '// @input SceneObject cameraObj {"hint":"Camera SceneObject. Required — used to compute camera-local frame."}'
+    - '// @input float fps = 5 {"hint":"Snapshots per second.", "widget":"slider", "min":1, "max":30, "step":1}'
+    - '// @input bool acceptUpdates = true {"hint":"Apply inbound cone-slots-update messages to slot world positions."}'
+    - '// @input bool enableDebugLogs = true {"hint":"Enable debug logs."}'

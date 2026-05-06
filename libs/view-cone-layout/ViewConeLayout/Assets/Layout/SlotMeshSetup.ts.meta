@@ -1,0 +1,47 @@
+- !<AssetImportMetadata/87ed5ffe-7fda-4a9c-b330-ef5030ae85a2>
+  ImportedAssetIds:
+    TypeScriptAsset: !<reference> 0c28b6f1-6058-402d-bd93-8afc66be014d
+  ImporterName: TypeScriptAssetImporter
+  PrimaryAsset: !<reference> 0c28b6f1-6058-402d-bd93-8afc66be014d
+  PackageType: NotAPackage
+  LegacyPackagePolicy: ~
+  ExtraData:
+    {}
+  AssetDataMap:
+    TypeScriptAsset: !<own> e778eb1e-49b2-444d-b028-37a54e967b12
+  DependentFiles:
+    []
+  ImporterSettings: !<AssetImporterSettings>
+    {}
+  CompressionSettings: !<own> 00000000-0000-0000-0000-000000000000
+- !<TypeScriptAssetData/e778eb1e-49b2-444d-b028-37a54e967b12>
+  SvgIcon: ""
+  SetupScript:
+    code: ""
+  Description: ""
+  VersionMajor: 0
+  VersionMinor: 0
+  VersionPatch: 0
+  ComponentUid: e59b1762-e058-434a-bc26-d106ebe2ea10
+  ExportUid: 00000000-0000-0000-0000-000000000000
+  PackagePolicy: CanBeUnpacked
+  ScriptInputsHidden:
+    unitSize: false
+    watchChildren: false
+  ScriptTypesHidden:
+    {}
+  ReadMe: !<reference> 00000000-0000-0000-0000-000000000000
+  DeclarationFile: !<reference> 00000000-0000-0000-0000-000000000000
+  Tags:
+    []
+  Attachments:
+    []
+  DefaultScriptInputs:
+    - unitSize: !<float> 1.000000
+      watchChildren: true
+  ScriptTypes:
+    -
+      {}
+  InputLines:
+    - '// @input float unitSize = 1 {"hint":"Edge length of the generated quad in mesh-local units. Slot transform scale multiplies on top — e.g. unitSize=1 + slot scale (8,8,1) gives an 8×8 cm panel."}'
+    - '// @input bool watchChildren = true {"hint":"Re-apply when child count changes (e.g. slots added/removed at runtime)."}'

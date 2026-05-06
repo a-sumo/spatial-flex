@@ -1,0 +1,47 @@
+- !<AssetImportMetadata/7b30b405-b764-4f85-9d6f-f61c38617910>
+  ImportedAssetIds:
+    TypeScriptAsset: !<reference> d3594be4-d3dc-4dbf-afff-8c226368a459
+  ImporterName: TypeScriptAssetImporter
+  PrimaryAsset: !<reference> d3594be4-d3dc-4dbf-afff-8c226368a459
+  PackageType: NotAPackage
+  LegacyPackagePolicy: ~
+  ExtraData:
+    {}
+  AssetDataMap:
+    TypeScriptAsset: !<own> b9308d14-7d44-4576-b723-4b6117931607
+  DependentFiles:
+    []
+  ImporterSettings: !<AssetImporterSettings>
+    {}
+  CompressionSettings: !<own> 00000000-0000-0000-0000-000000000000
+- !<TypeScriptAssetData/b9308d14-7d44-4576-b723-4b6117931607>
+  SvgIcon: ""
+  SetupScript:
+    code: ""
+  Description: ""
+  VersionMajor: 0
+  VersionMinor: 0
+  VersionPatch: 0
+  ComponentUid: 65457272-6174-4d62-ba2f-6948ef2331a8
+  ExportUid: 00000000-0000-0000-0000-000000000000
+  PackagePolicy: CanBeUnpacked
+  ScriptInputsHidden:
+    layout: false
+    verbose: false
+  ScriptTypesHidden:
+    {}
+  ReadMe: !<reference> 00000000-0000-0000-0000-000000000000
+  DeclarationFile: !<reference> 00000000-0000-0000-0000-000000000000
+  Tags:
+    []
+  Attachments:
+    []
+  DefaultScriptInputs:
+    - layout: !<MappingBased.AssignableType> 00000000-0000-0000-0000-000000000000
+      verbose: true
+  ScriptTypes:
+    -
+      {}
+  InputLines:
+    - '// @input AssignableType layout {"hint":"ViewConeLayout instance whose refresh() runs on click."}'
+    - // @input bool verbose = true

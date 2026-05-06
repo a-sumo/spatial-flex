@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ViewCone Live Preview</title>
+  <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+  <script>
+    // Values injected from .env via vite.config.js htmlEnv plugin.
+    window.SNAPCLOUD_PROJECT = {
+      url: '%VITE_SUPABASE_URL%',
+      publicToken: '%VITE_SUPABASE_ANON_KEY%',
+      channel: '%VITE_SUPABASE_CHANNEL%',
+    };
+  </script>
+  <style>
+    :root { color-scheme: dark; }
+    html, body { margin: 0; padding: 0; background: #0e0e10; color: #e8e8ea; font: 14px/1.4 system-ui, -apple-system, sans-serif; height: 100%; }
+    main { max-width: 980px; margin: 0 auto; padding: 12px 24px; height: 100vh; box-sizing: border-box; display: flex; flex-direction: column; }
+    h1 { font-size: 13px; font-weight: 600; margin: 0 0 8px; letter-spacing: 0.02em; color: #fafafa; flex-shrink: 0; }
+    .row { display: flex; align-items: center; gap: 8px; min-width: 0; margin: 3px 0; flex-shrink: 0; }
+    .row label { width: 110px; flex-shrink: 0; color: #8a8a90; font-size: 11px; }
+    .row input { flex: 1 1 0; min-width: 0; width: 0; padding: 4px 8px; background: #1a1a1d; border: 1px solid #2a2a2e; border-radius: 4px; color: #e8e8ea; font: 11px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .row input:focus { outline: none; border-color: #1878e0; }
+    .actions { display: flex; gap: 8px; margin: 6px 0; flex-shrink: 0; }
+    button { padding: 4px 10px; background: #1878e0; color: #fff; border: 0; border-radius: 4px; font: 12px/1.3 system-ui; cursor: pointer; }
+    button:disabled { background: #2a2a2e; color: #5a5a60; cursor: not-allowed; }
+    button.secondary { background: #2a2a2e; color: #e8e8ea; }
+    .status { padding: 4px 10px; margin: 4px 0; background: #1a1a1d; border-left: 3px solid #5a5a60; border-radius: 2px; font-size: 11px; color: #c8c8ce; flex-shrink: 0; }
+    .status.live { border-left-color: #e03020; }
+    .status.connected { border-left-color: #1878e0; }
+    .status.error { border-left-color: #e03020; color: #f39e93; }
+    .stats { display: flex; gap: 16px; margin: 4px 0; font: 11px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace; color: #8a8a90; flex-shrink: 0; }
+    .stats span b { color: #e8e8ea; font-weight: 600; }
+    .frame-outer {
+      flex: 1 1 0;
+      min-height: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-top: 6px;
+      min-width: 0;
+    }
+    /* Hard-locked 2:3 portrait — the actual Spectacles per-eye display
+       aspect. JS NEVER changes this. JPEG is cropped centre-out to 2:3
+       before drawing, so what arrives over the wire never reshapes the box. */
+    .frame-wrap {
+      aspect-ratio: 2 / 3;
+      height: 100%;
+      max-width: 100%;
+      background: #050507;
+      border: 1px solid #2a2a2e;
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    .frame-wrap canvas { display: block; width: 100%; height: 100%; }
+    .gallery {
+      flex-shrink: 0;
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+      gap: 6px;
+      margin-top: 8px;
+      max-height: 240px;
+      overflow-y: auto;
+    }
+    .gallery .card {
+      background: #1a1a1d;
+      border: 1px solid #2a2a2e;
+      border-radius: 4px;
+      overflow: hidden;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+    }
+    .gallery .card:hover { border-color: #1878e0; }
+    .gallery .card img { width: 100%; aspect-ratio: 2 / 3; object-fit: cover; display: block; }
+    .gallery .card .meta {
+      font: 10px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace;
+      color: #8a8a90; padding: 4px 6px;
+    }
+    .gallery .card .meta b { color: #e8e8ea; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>ViewCone live preview</h1>
+
+    <div class="row"><label for="supabaseUrl">Supabase URL</label><input id="supabaseUrl" type="text" autocomplete="off"></div>
+    <div class="row"><label for="supabaseKey">Anon key</label><input id="supabaseKey" type="text" autocomplete="off"></div>
+    <div class="row"><label for="channelName">Channel</label><input id="channelName" type="text" autocomplete="off"></div>
+
+    <div class="actions">
+      <button id="connectBtn">Connect</button>
+      <button id="disconnectBtn" class="secondary" disabled>Disconnect</button>
+      <button id="snapshotBtn" class="secondary" disabled>Snapshot</button>
+      <button id="streamStartBtn" class="secondary" disabled>Start stream</button>
+      <button id="streamStopBtn" class="secondary" disabled>Stop stream</button>
+      <button id="resolveBtn" class="secondary" disabled>Resolve overlaps</button>
+      <button id="resetBtn" class="secondary" disabled>Reset positions</button>
+      <button id="screenshotBtn" class="secondary" disabled>Save PNG</button>
+      <span class="dev-only" style="display:none">
+        <button id="autofitBtn" class="secondary" disabled>Auto-fit text 24px</button>
+        <button id="shrinkwrapBtn" class="secondary" disabled>Shrinkwrap text</button>
+      </span>
+    </div>
+
+    <div id="statusPanel" class="status">Idle</div>
+    <div id="errorPanel" class="status error" style="display: none;"></div>
+
+    <div class="stats">
+      <span>frames <b id="frameCount">0</b></span>
+      <span>fps <b id="fps">—</b></span>
+      <span>last <b id="lastFrameAge">—</b></span>
+    </div>
+
+    <div class="frame-outer"><div class="frame-wrap"><canvas id="streamCanvas" width="1200" height="1800"></canvas></div></div>
+
+    <div id="gallery" class="gallery"></div>
+  </main>
+
+  <script>
+    class ViewConeViewer {
+      constructor() {
+        this.canvas = document.getElementById('streamCanvas');
+        this.ctx = this.canvas.getContext('2d');
+        this.client = null;
+        this.channel = null;
+        this.connected = false;
+
+        this.framesReceived = 0;
+        this.lastFrameAt = 0;
+        this.fpsSamples = [];
+
+        this.restoreFields();
+        document.getElementById('connectBtn').addEventListener('click', () => this.connect());
+        document.getElementById('disconnectBtn').addEventListener('click', () => this.disconnect());
+        document.getElementById('screenshotBtn').addEventListener('click', () => this.saveFrame());
+        document.getElementById('resolveBtn').addEventListener('click', () => this.fireUiTrigger('resolve'));
+        document.getElementById('snapshotBtn').addEventListener('click', () => {
+          // Mark the next inbound JPEG as a "user snapshot" so handleFrame
+          // captures it to the gallery alongside its scene state.
+          this.expectingGallerySnapshot = true;
+          this.fireUiTrigger('snapshot');
+        });
+        document.getElementById('streamStartBtn').addEventListener('click', () => this.fireUiTrigger('stream-start'));
+        document.getElementById('streamStopBtn').addEventListener('click', () => this.fireUiTrigger('stream-stop'));
+        document.getElementById('resetBtn').addEventListener('click', () => this.fireUiTrigger('reset'));
+        document.getElementById('autofitBtn').addEventListener('click', () => this.fireUiTrigger('text-autofit'));
+        document.getElementById('shrinkwrapBtn').addEventListener('click', () => this.fireUiTrigger('text-shrinkwrap'));
+
+        // Galllery state
+        this.gallery = [];
+        this.lastSlotState = null;
+        this.expectingGallerySnapshot = false;
+        ['supabaseUrl', 'supabaseKey', 'channelName'].forEach((id) => {
+          document.getElementById(id).addEventListener('input', () => this.persistFields());
+        });
+
+        setInterval(() => this.updateStats(), 500);
+      }
+
+      restoreFields() {
+        const defaults = window.SNAPCLOUD_PROJECT || {};
+        let saved = {};
+        try { saved = JSON.parse(localStorage.getItem('viewcone-stream-config') || '{}'); } catch (_) {}
+        document.getElementById('supabaseUrl').value = saved.url || defaults.url || '';
+        document.getElementById('supabaseKey').value = saved.key || defaults.publicToken || '';
+        document.getElementById('channelName').value = saved.channel || defaults.channel || 'viewcone-live-stream';
+      }
+
+      persistFields() {
+        try {
+          localStorage.setItem('viewcone-stream-config', JSON.stringify({
+            url: document.getElementById('supabaseUrl').value,
+            key: document.getElementById('supabaseKey').value,
+            channel: document.getElementById('channelName').value,
+          }));
+        } catch (_) {}
+      }
+
+      setStatus(text, cls) {
+        const el = document.getElementById('statusPanel');
+        el.textContent = text;
+        el.className = 'status' + (cls ? ' ' + cls : '');
+      }
+
+      showError(msg) {
+        const el = document.getElementById('errorPanel');
+        el.textContent = msg;
+        el.style.display = 'block';
+      }
+      hideError() {
+        document.getElementById('errorPanel').style.display = 'none';
+      }
+
+      async connect() {
+        const url = document.getElementById('supabaseUrl').value.trim();
+        const key = document.getElementById('supabaseKey').value.trim();
+        const channelName = document.getElementById('channelName').value.trim();
+
+        if (!url || !key || !channelName) {
+          this.showError('Fill URL, anon key and channel name');
+          return;
+        }
+        this.hideError();
+
+        // Reuse the client across reconnects to avoid the "Multiple
+        // GoTrueClient instances" warning. We don't use Supabase auth at
+        // all — anon key is sufficient for Realtime broadcast — so disable
+        // session persistence to keep the auth subsystem from spinning up
+        // on every createClient call.
+        if (!this.client) {
+          this.client = window.supabase.createClient(url, key, {
+            realtime: { heartbeatIntervalMs: 2500 },
+            auth: { persistSession: false, autoRefreshToken: false },
+          });
+        }
+        this.channel = this.client.channel(channelName, {
+          config: { broadcast: { self: false } },
+        });
+
+        this.channel
+          .on('broadcast', { event: 'composite-stream-init' }, () => this.setStatus('Stream init received', 'connected'))
+          .on('broadcast', { event: 'composite-stream-started' }, () => {
+            this.framesReceived = 0;
+            this.lastFrameAt = 0;
+            this.fpsSamples = [];
+            this.setStatus('Live', 'live');
+          })
+          .on('broadcast', { event: 'composite-video-frame' }, (msg) => this.handleFrame(msg.payload))
+          .on('broadcast', { event: 'cone-slots-state' }, (msg) => {
+            // Cache the most recent slot snapshot so a Snapshot click pairs
+            // its JPEG with whatever scene state was current at that moment.
+            this.lastSlotState = msg.payload || null;
+          })
+          .on('broadcast', { event: 'composite-stream-ended' }, (msg) => {
+            const total = msg.payload && msg.payload.totalFrames;
+            this.setStatus(`Stream ended (${total} frames)`, '');
+          });
+
+        this.setStatus('Connecting…');
+        await this.channel.subscribe((status) => {
+          if (status === 'SUBSCRIBED') {
+            this.connected = true;
+            this.setStatus('Subscribed — waiting for frames', 'connected');
+            document.getElementById('connectBtn').disabled = true;
+            document.getElementById('disconnectBtn').disabled = false;
+            document.getElementById('screenshotBtn').disabled = false;
+            document.getElementById('resolveBtn').disabled = false;
+            document.getElementById('snapshotBtn').disabled = false;
+            document.getElementById('streamStartBtn').disabled = false;
+            document.getElementById('streamStopBtn').disabled = false;
+            document.getElementById('resetBtn').disabled = false;
+            document.getElementById('autofitBtn').disabled = false;
+            document.getElementById('shrinkwrapBtn').disabled = false;
+
+            this.channel.send({
+              type: 'broadcast',
+              event: 'viewer-joined',
+              payload: { viewerId: 'web-' + Date.now() },
+            });
+          } else if (status === 'CLOSED' || status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+            this.connected = false;
+            this.setStatus('Channel ' + status.toLowerCase(), 'error');
+          }
+        });
+      }
+
+      disconnect() {
+        if (this.channel && this.connected) {
+          try {
+            this.channel.send({ type: 'broadcast', event: 'viewer-left', payload: { viewerId: 'web' } });
+          } catch (_) {}
+          this.client.removeChannel(this.channel);
+        }
+        this.channel = null;
+        // Keep `this.client` alive — see note in connect(). Recreating it
+        // on every disconnect/connect cycle is what produced the
+        // "Multiple GoTrueClient instances" warning.
+        this.connected = false;
+        this.setStatus('Disconnected');
+        document.getElementById('connectBtn').disabled = false;
+        document.getElementById('disconnectBtn').disabled = true;
+        document.getElementById('screenshotBtn').disabled = true;
+        document.getElementById('resolveBtn').disabled = true;
+        document.getElementById('snapshotBtn').disabled = true;
+        document.getElementById('streamStartBtn').disabled = true;
+        document.getElementById('streamStopBtn').disabled = true;
+        document.getElementById('resetBtn').disabled = true;
+        document.getElementById('autofitBtn').disabled = true;
+        document.getElementById('shrinkwrapBtn').disabled = true;
+      }
+
+      // Send a named UI intent over the same channel. SlotStateBroadcaster
+      // on the LS side runs the matching code path (e.g. ViewConeLayout.refresh
+      // for target='resolve') — same as if a SIK button had been pinched.
+      fireUiTrigger(target) {
+        if (!this.channel || !this.connected) return;
+        this.channel.send({
+          type: 'broadcast',
+          event: 'ui-trigger',
+          payload: { target },
+        });
+      }
+
+      handleFrame(payload) {
+        if (!payload || !payload.frameData) return;
+        if (this.framesReceived === 0) this.setStatus('Live', 'live');
+
+        const base64 = payload.frameData.replace('|||FRAME_END|||', '');
+        const src = base64.startsWith('data:') ? base64 : 'data:image/jpeg;base64,' + base64;
+
+        const img = new Image();
+        img.onload = () => {
+          // Hard-locked 2:3 portrait — Spectacles per-eye native aspect.
+          // Crop the JPEG centre-out to that aspect, then blit. Canvas dims
+          // stay fixed at 1200x1800 so the wrap (also locked at 2:3) never
+          // reshapes.
+          const TARGET_ASPECT = 2 / 3;
+          const imgAspect = img.width / img.height;
+          let sx, sy, sw, sh;
+          if (imgAspect > TARGET_ASPECT) {
+            // JPEG wider than 9:16 — crop the sides
+            sh = img.height;
+            sw = Math.round(img.height * TARGET_ASPECT);
+            sy = 0;
+            sx = Math.round((img.width - sw) / 2);
+          } else {
+            // JPEG taller than 9:16 — crop top/bottom
+            sw = img.width;
+            sh = Math.round(img.width / TARGET_ASPECT);
+            sx = 0;
+            sy = Math.round((img.height - sh) / 2);
+          }
+          this.ctx.fillStyle = '#050507';
+          this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+          this.ctx.drawImage(img, sx, sy, sw, sh, 0, 0, this.canvas.width, this.canvas.height);
+
+          if (this.expectingGallerySnapshot) {
+            this.expectingGallerySnapshot = false;
+            this.captureGallerySnapshot();
+          }
+
+          const now = performance.now();
+          if (this.lastFrameAt > 0) {
+            this.fpsSamples.push(now - this.lastFrameAt);
+            if (this.fpsSamples.length > 30) this.fpsSamples.shift();
+          }
+          this.lastFrameAt = now;
+          this.framesReceived++;
+
+          img.onload = null;
+          img.onerror = null;
+          img.src = '';
+        };
+        img.onerror = () => { img.onload = null; img.onerror = null; };
+        img.src = src;
+      }
+
+      resolveDisplayAspect(meta, img) {
+        const direct = Number(meta.displayAspect);
+        if (Number.isFinite(direct) && direct > 0) return direct;
+        const w = Number(meta.displayWidth);
+        const h = Number(meta.displayHeight);
+        if (Number.isFinite(w) && Number.isFinite(h) && w > 0 && h > 0) return w / h;
+        return img.width / img.height;
+      }
+
+      drawFitted(img, fit) {
+        const sw = img.width;
+        const sh = img.height;
+        const dw = this.canvas.width;
+        const dh = this.canvas.height;
+        const sourceAspect = sw / sh;
+        const destAspect = dw / dh;
+        const cover = fit === 'cover';
+        const scale = cover
+          ? (sourceAspect > destAspect ? dh / sh : dw / sw)
+          : (sourceAspect > destAspect ? dw / sw : dh / sh);
+        const w = sw * scale;
+        const h = sh * scale;
+        const x = (dw - w) * 0.5;
+        const y = (dh - h) * 0.5;
+        this.ctx.drawImage(img, x, y, w, h);
+      }
+
+      updateStats() {
+        document.getElementById('frameCount').textContent = String(this.framesReceived);
+        if (this.fpsSamples.length > 1) {
+          const avgMs = this.fpsSamples.reduce((a, b) => a + b, 0) / this.fpsSamples.length;
+          document.getElementById('fps').textContent = (1000 / avgMs).toFixed(1);
+        } else {
+          document.getElementById('fps').textContent = '—';
+        }
+        if (this.lastFrameAt > 0) {
+          const ageMs = performance.now() - this.lastFrameAt;
+          document.getElementById('lastFrameAge').textContent = ageMs < 2000
+            ? Math.round(ageMs) + 'ms'
+            : (ageMs / 1000).toFixed(1) + 's';
+        } else {
+          document.getElementById('lastFrameAge').textContent = '—';
+        }
+      }
+
+      saveFrame() {
+        const dataUrl = this.canvas.toDataURL('image/png');
+        const a = document.createElement('a');
+        a.href = dataUrl;
+        a.download = `viewcone-${new Date().toISOString().replace(/[:.]/g, '-')}.png`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+      }
+
+      // ─── Snapshot gallery ──────────────────────────────────────────
+      // Each entry pairs a 2:3 PNG of the current canvas with whatever the
+      // most recent cone-slots-state payload contained. Lets you tell which
+      // resolve pass produced which frame.
+      captureGallerySnapshot() {
+        const dataUrl = this.canvas.toDataURL('image/jpeg', 0.7);
+        const slotsCount = this.lastSlotState && this.lastSlotState.slots
+          ? this.lastSlotState.slots.length : 0;
+        this.gallery.unshift({
+          dataUrl,
+          timestamp: Date.now(),
+          slots: this.lastSlotState ? JSON.parse(JSON.stringify(this.lastSlotState.slots || [])) : [],
+        });
+        if (this.gallery.length > 24) this.gallery.length = 24;  // bound memory
+        this.renderGallery();
+      }
+
+      renderGallery() {
+        const root = document.getElementById('gallery');
+        root.innerHTML = '';
+        for (let i = 0; i < this.gallery.length; i++) {
+          const g = this.gallery[i];
+          const card = document.createElement('div');
+          card.className = 'card';
+          card.innerHTML =
+            `<img src="${g.dataUrl}" alt="snapshot">` +
+            `<div class="meta">` +
+              `<div><b>${this.gallery.length - i}</b> · ${new Date(g.timestamp).toLocaleTimeString()}</div>` +
+              `<div>${g.slots.length} slot${g.slots.length === 1 ? '' : 's'}</div>` +
+            `</div>`;
+          card.addEventListener('click', () => this.expandGallery(i));
+          root.appendChild(card);
+        }
+      }
+
+      expandGallery(index) {
+        const g = this.gallery[index];
+        if (!g) return;
+        const lines = g.slots.map((s) => {
+          const x = (s.x ?? 0).toFixed(1);
+          const y = (s.y ?? 0).toFixed(1);
+          const z = (s.z ?? 0).toFixed(1);
+          const w = (s.w ?? 0).toFixed(1);
+          const h = (s.h ?? 0).toFixed(1);
+          return `${s.name}  pos=(${x},${y},${z})cm  size=${w}×${h}cm`;
+        }).join('\n');
+        // Open in a new tab — works without bundling a modal lib
+        const win = window.open('', '_blank');
+        if (!win) return;
+        win.document.write(
+          `<title>Snapshot ${new Date(g.timestamp).toISOString()}</title>` +
+          `<style>body{margin:0;background:#0e0e10;color:#e8e8ea;font:12px/1.4 ui-monospace,Menlo,monospace;display:flex;gap:16px;padding:16px}` +
+          `img{max-height:90vh;background:#050507;border:1px solid #2a2a2e;border-radius:4px}` +
+          `pre{flex:1;white-space:pre-wrap;background:#1a1a1d;padding:12px;border-radius:4px}</style>` +
+          `<img src="${g.dataUrl}"><pre>${lines || '(no slot state at capture time)'}</pre>`
+        );
+        win.document.close();
+      }
+    }
+
+    // Reveal dev-only buttons when ?dev=1 (or ?dev=true) is in the URL.
+    if (/[?&]dev=(1|true)\b/.test(location.search)) {
+      for (const el of document.querySelectorAll('.dev-only')) el.style.display = '';
+    }
+
+    new ViewConeViewer();
+  </script>
+</body>
+</html>

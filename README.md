@@ -4,9 +4,9 @@ Drop-in spatial UI primitives for Lens Studio.
 
 ## Packages
 
-- [`text-reflow`](packages/text-reflow)
-- [`size-resolver`](packages/size-resolver)
-- [`view-cone-layout`](packages/view-cone-layout)
+- [`text-reflow`](libs/text-reflow)
+- [`size-resolver`](libs/size-resolver)
+- [`view-cone-layout`](libs/view-cone-layout)
 
 ## License
 

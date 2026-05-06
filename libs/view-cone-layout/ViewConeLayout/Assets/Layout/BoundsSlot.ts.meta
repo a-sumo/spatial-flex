@@ -1,0 +1,59 @@
+- !<AssetImportMetadata/d237e655-2866-42da-bc46-d62cb7704e3f>
+  ImportedAssetIds:
+    TypeScriptAsset: !<reference> fd0476dc-566d-431c-8aa0-c303e20ecaea
+  ImporterName: TypeScriptAssetImporter
+  PrimaryAsset: !<reference> fd0476dc-566d-431c-8aa0-c303e20ecaea
+  PackageType: NotAPackage
+  LegacyPackagePolicy: ~
+  ExtraData:
+    {}
+  AssetDataMap:
+    TypeScriptAsset: !<own> a3a2c7c8-7bec-4c35-947a-d2722f9eb034
+  DependentFiles:
+    []
+  ImporterSettings: !<AssetImporterSettings>
+    {}
+  CompressionSettings: !<own> 00000000-0000-0000-0000-000000000000
+- !<TypeScriptAssetData/a3a2c7c8-7bec-4c35-947a-d2722f9eb034>
+  SvgIcon: ""
+  SetupScript:
+    code: ""
+  Description: ""
+  VersionMajor: 0
+  VersionMinor: 0
+  VersionPatch: 0
+  ComponentUid: 3de894d0-8712-449e-bb5d-8c6e57b2971a
+  ExportUid: 00000000-0000-0000-0000-000000000000
+  PackagePolicy: CanBeUnpacked
+  ScriptInputsHidden:
+    depthFlexible: false
+    depthLane: false
+    minAngularHeight: false
+    priority: false
+    pushable: false
+    sector: false
+  ScriptTypesHidden:
+    {}
+  ReadMe: !<reference> 00000000-0000-0000-0000-000000000000
+  DeclarationFile: !<reference> 00000000-0000-0000-0000-000000000000
+  Tags:
+    []
+  Attachments:
+    []
+  DefaultScriptInputs:
+    - sector: CENTER
+      depthLane: mid
+      priority: !<float> 5.000000
+      pushable: true
+      depthFlexible: true
+      minAngularHeight: !<float> 0.000000
+  ScriptTypes:
+    -
+      {}
+  InputLines:
+    - '// @input string sector = "CENTER" {"hint":"Preferred sector hint (informational only)."}'
+    - '// @input string depthLane = "mid" {"hint":"Depth lane hint: near, mid, far."}'
+    - '// @input float priority = 5 {"hint":"Higher priority stays put; lower gets pushed (0-10)."}'
+    - '// @input bool pushable = true {"hint":"Allow depth-push to resolve overlaps."}'
+    - '// @input bool depthFlexible = true {"hint":"Allow this slot to switch depth lanes."}'
+    - '// @input float minAngularHeight {"hint":"Minimum angular height for legibility (deg). 0 = no constraint."}'
